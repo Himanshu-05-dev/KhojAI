@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: khojai-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=khojai
+    networks:
+      - khojai-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: khojai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - khojai-network
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: khojai-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - SERVICE_SECRET=internal-secret
+      - LLM_PROVIDER=gemini
+    networks:
+      - khojai-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: khojai-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongodb
+      - redis
+      - ai-service
+    environment:
+      - PORT=5000
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongodb:27017/khojai
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=super-secret-jwt-key-for-khojai-development-only-32chars
+      - AI_SERVICE_URL=http://ai-service:8000
+      - CLIENT_URL=http://localhost:5173
+    volumes:
+      - ./server/uploads:/app/uploads
+    networks:
+      - khojai-network
+
+  worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: khojai-worker
+    restart: unless-stopped
+    command: npm run worker
+    depends_on:
+      - mongodb
+      - redis
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongodb:27017/khojai
+      - REDIS_URL=redis://redis:6379
+      - AI_SERVICE_URL=http://ai-service:8000
+    networks:
+      - khojai-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: khojai-client
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
+    networks:
+      - khojai-network
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  khojai-network:
+    driver: bridge

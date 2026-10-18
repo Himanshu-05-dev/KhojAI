@@ -1,0 +1,55 @@
+const mongoose = require('mongoose')
+
+const resumeSchema = new mongoose.Schema({
+  userId:           { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  originalFilename: { type: String, required: true },
+  storageUrl:       { type: String },
+  storageKey:       { type: String },
+  fileSize:         { type: Number },
+  mimeType:         { type: String, default: 'application/pdf' },
+  extractedText:    { type: String },
+  parsedProfile: {
+    name:            { type: String },
+    email:           { type: String },
+    phone:           { type: String },
+    summary:         { type: String },
+    skills:          [{ type: String }],
+    experienceYears: { type: Number, default: 0 },
+    education: [{
+      institution: String,
+      degree:      String,
+      field:       String,
+      startYear:   String,
+      endYear:     String,
+      grade:       String,
+    }],
+    workExperience: [{
+      company:     String,
+      role:        String,
+      location:    String,
+      startDate:   String,
+      endDate:     String,
+      current:     Boolean,
+      description: String,
+      highlights:  [String],
+    }],
+    projects: [{
+      title:       String,
+      description: String,
+      techStack:   [String],
+      link:        String,
+    }],
+    certifications: [String],
+    languages:      [String],
+  },
+  parsingStatus: {
+    type: String,
+    enum: ['pending', 'processing', 'completed', 'failed'],
+    default: 'pending',
+    index: true,
+  },
+  parsingError: { type: String },
+  isPrimary:    { type: Boolean, default: true },
+}, { timestamps: true })
+
+module.exports = mongoose.model('Resume', resumeSchema)
