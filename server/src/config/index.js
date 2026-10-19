@@ -22,4 +22,5 @@ module.exports = {
   smtpPass:    process.env.SMTP_PASS,
   smtpFrom:    process.env.SMTP_FROM || 'KhojAI <no-reply@khojai.dev>',
   demoMode:    process.env.DEMO_MODE !== 'false',
+  bcryptSaltRounds: Number(process.env.SALT_ROUNDS) || 12,
 }

@@ -26,12 +26,17 @@ export default function LoginPage() {
     if (Object.keys(errs).length) { setErrors(errs); return }
     setLoading(true); setErrors({})
     try {
-      const { data } = await authAPI.login(form)
-      setAuth(data.data.user, data.data.token)
-      toast.success(`Welcome back, ${data.data.user.name}!`)
+      const res = await authAPI.login(form)
+      const user = res.data?.data?.user || res.data?.user
+      const token = res.data?.data?.token || res.data?.token
+      if (!user || !token) {
+        throw new Error('Login succeeded, but failed to load user profile.')
+      }
+      setAuth(user, token)
+      toast.success(`Welcome back, ${user.name}!`)
       navigate('/dashboard')
     } catch (err) {
-      const msg = err.response?.data?.message || 'Login failed. Please try again.'
+      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
       toast.error(msg)
       if (err.response?.status === 401) setErrors({ password: 'Invalid email or password' })
     } finally {

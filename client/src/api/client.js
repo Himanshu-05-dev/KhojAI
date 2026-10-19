@@ -16,11 +16,19 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 globally
+// Normalize response data and handle 401 globally
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    if (res.data && typeof res.data === 'object' && res.data.data === undefined) {
+      const entityKey = ['job', 'resume', 'roadmap', 'profile', 'applications', 'notifications'].find(
+        (k) => res.data[k] !== undefined
+      )
+      res.data.data = entityKey ? res.data[entityKey] : res.data
+    }
+    return res
+  },
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !window.location.pathname.startsWith('/auth/')) {
       useAuthStore.getState().clearAuth()
       window.location.href = '/auth/login'
     }

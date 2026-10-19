@@ -36,19 +36,18 @@ const userSchema = new mongoose.Schema({
   bio:          { type: String, maxlength: 500 },
 }, { timestamps: true })
 
-userSchema.index({ email: 1 }, { unique: true })
+const config   = require('../config')
 
 userSchema.methods.comparePassword = async function (plain) {
   if (!this.passwordHash) return false
   return bcrypt.compare(plain, this.passwordHash)
 }
 
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('passwordHash') || !this.passwordHash) return next()
+userSchema.pre('save', async function () {
+  if (!this.isModified('passwordHash') || !this.passwordHash) return
   // Only hash if it looks like a plain password (not already hashed)
-  if (this.passwordHash.startsWith('$2')) return next()
-  this.passwordHash = await bcrypt.hash(this.passwordHash, 12)
-  next()
+  if (this.passwordHash.startsWith('$2')) return
+  this.passwordHash = await bcrypt.hash(this.passwordHash, config.bcryptSaltRounds || 12)
 })
 
 userSchema.methods.toSafeJSON = function () {

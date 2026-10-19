@@ -30,12 +30,23 @@ export default function RegisterPage() {
     if (Object.keys(errs).length) { setErrors(errs); return }
     setLoading(true); setErrors({})
     try {
-      const { data } = await authAPI.register(form)
-      setAuth(data.data.user, data.data.token)
+      const res = await authAPI.register({
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+        currentStatus: form.role,
+      })
+      const user = res.data?.data?.user || res.data?.user
+      const token = res.data?.data?.token || res.data?.token
+      if (!user || !token) {
+        throw new Error('Registration succeeded, but failed to load user profile.')
+      }
+      setAuth(user, token)
       toast.success('Account created! Let\'s set up your profile.')
       navigate('/onboarding')
     } catch (err) {
-      const msg = err.response?.data?.message || 'Registration failed.'
+      const msg = err.response?.data?.message || err.message || 'Registration failed.'
       toast.error(msg)
       if (err.response?.status === 409) setErrors({ email: 'This email is already registered' })
     } finally {
