@@ -34,6 +34,7 @@ export const jobsAPI = {
   feedback:    (id, data) => api.post(`/jobs/${id}/feedback`, data),
   save:        (id)     => api.post(`/jobs/${id}/save`),
   unsave:      (id)     => api.delete(`/jobs/${id}/save`),
+  syncRealJobs:()       => api.post('/jobs/sync'),
 }
 
 // ─── Matches ───────────────────────────────────────────────────

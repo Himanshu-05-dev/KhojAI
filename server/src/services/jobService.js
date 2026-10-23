@@ -162,17 +162,56 @@ const SAMPLE_JOBS = [
   },
 ]
 
+function enrichJobWithMatch(job, match, resumeProfile) {
+  let m = match
+  if (!m && resumeProfile) {
+    m = aiClient.localMatchJob ? aiClient.localMatchJob(resumeProfile, job) : null
+  }
+
+  if (!m) return job
+
+  return {
+    ...job,
+    matchScore: m.matchScore,
+    categoryScores: m.categoryScores,
+    matchBreakdown: m.categoryScores,
+    matchingSkills: m.matchingSkills || [],
+    missingSkills: m.missingSkills || [],
+    matchDetails: {
+      matchingSkills: m.matchingSkills || [],
+      missingSkills: m.missingSkills || [],
+      explanation: m.copilotPitch || (m.strengths?.length ? m.strengths.join('. ') : ''),
+    },
+    matchHighlights: (m.strengths && m.strengths.length > 0)
+      ? m.strengths
+      : ((m.matchingSkills && m.matchingSkills.length > 0)
+          ? m.matchingSkills.map(s => `${s} matched`)
+          : []),
+    copilotPitch: m.copilotPitch,
+  }
+}
+
 const jobService = {
   async seedDefaultJobs() {
     try {
+      const realJobFetcher = require('./realJobFetcher')
       const count = await Job.countDocuments()
       if (count === 0) {
-        await Job.insertMany(SAMPLE_JOBS)
-        logger.info(`Seeded ${SAMPLE_JOBS.length} initial default jobs into the database.`)
+        await realJobFetcher.syncAllRealJobs({ maxJobs: 50 }).catch(() => {})
+        logger.info('Synced initial live jobs from external sources.')
       }
+      // Proactively sync live external jobs in the background
+      realJobFetcher.syncAllRealJobs({ maxJobs: 50 }).catch(err => {
+        logger.warn(`Initial real job sync notice: ${err.message}`)
+      })
     } catch (err) {
       logger.error(`Error seeding jobs: ${err.message}`)
     }
+  },
+
+  async syncRealJobs(options = {}) {
+    const realJobFetcher = require('./realJobFetcher')
+    return await realJobFetcher.syncAllRealJobs(options)
   },
 
   async listJobs({
@@ -186,6 +225,7 @@ const jobService = {
     page = 1,
     limit = 12,
     sort = 'newest',
+    userId,
   } = {}) {
     if (mongoose.connection.readyState !== 1) {
       let filtered = SAMPLE_JOBS.map((j, idx) => ({ ...j, _id: `sample-${idx + 1}` }))
@@ -238,11 +278,52 @@ const jobService = {
       }
     }
 
-    let sortOptions = { postedAt: -1 }
-    if (sort === 'oldest') sortOptions = { postedAt: 1 }
-    if (sort === 'salary') sortOptions = { 'salary.max': -1 }
+    // Check if authenticated user has a parsed resume profile
+    let resume = null
+    if (userId) {
+      resume = await Resume.findOne({ userId }).sort({ isPrimary: -1, updatedAt: -1 }).lean()
+    }
+    const resumeProfile = resume?.parsedProfile || null
 
-    const skip = (page - 1) * limit
+    const sortLower = String(sort || '').toLowerCase()
+    const isMatchSort = sortLower === 'relevance' || sortLower === 'match score' || sortLower === 'match_score'
+
+    // If sorting by match score/relevance and user has a resume, enrich & rank by match score
+    if (isMatchSort && resumeProfile) {
+      const allJobs = await Job.find(filter).lean()
+      const jobIds = allJobs.map(j => j._id)
+      const existingMatches = await Match.find({ userId, jobId: { $in: jobIds } }).lean()
+      const matchMap = new Map()
+      existingMatches.forEach(m => matchMap.set(String(m.jobId), m))
+
+      const enriched = allJobs.map(job => {
+        const match = matchMap.get(String(job._id))
+        return enrichJobWithMatch(job, match, resumeProfile)
+      })
+
+      enriched.sort((a, b) => {
+        const diff = (b.matchScore || 0) - (a.matchScore || 0)
+        if (diff !== 0) return diff
+        return new Date(b.postedAt || 0) - new Date(a.postedAt || 0)
+      })
+
+      const skip = (Number(page) - 1) * Number(limit)
+      const paginated = enriched.slice(skip, skip + Number(limit))
+
+      return {
+        jobs: paginated,
+        total: enriched.length,
+        page: Number(page),
+        pages: Math.ceil(enriched.length / Number(limit)) || 1,
+        totalPages: Math.ceil(enriched.length / Number(limit)) || 1,
+      }
+    }
+
+    let sortOptions = { postedAt: -1 }
+    if (sortLower === 'oldest') sortOptions = { postedAt: 1 }
+    if (sortLower === 'salary') sortOptions = { 'salary.max': -1 }
+
+    const skip = (Number(page) - 1) * Number(limit)
 
     const [jobs, total] = await Promise.all([
       Job.find(filter)
@@ -253,20 +334,91 @@ const jobService = {
       Job.countDocuments(filter),
     ])
 
+    // If user is authenticated and has resume, enrich the paginated jobs with match scores
+    let finalJobs = jobs
+    if (userId && resumeProfile) {
+      const jobIds = jobs.map(j => j._id)
+      const existingMatches = await Match.find({ userId, jobId: { $in: jobIds } }).lean()
+      const matchMap = new Map()
+      existingMatches.forEach(m => matchMap.set(String(m.jobId), m))
+      finalJobs = jobs.map(job => {
+        const match = matchMap.get(String(job._id))
+        return enrichJobWithMatch(job, match, resumeProfile)
+      })
+    }
+
     return {
-      jobs,
+      jobs: finalJobs,
       total,
       page: Number(page),
-      totalPages: Math.ceil(total / limit) || 1,
+      pages: Math.ceil(total / Number(limit)) || 1,
+      totalPages: Math.ceil(total / Number(limit)) || 1,
     }
   },
 
-  async getJobById(id) {
+  async getRecommendedJobs({ userId, limit = 6 } = {}) {
+    let resume = null
+    if (userId) {
+      resume = await Resume.findOne({ userId }).sort({ isPrimary: -1, updatedAt: -1 }).lean()
+    }
+    const resumeProfile = resume?.parsedProfile || null
+    const numLimit = Number(limit) || 6
+
+    if (userId && resumeProfile) {
+      const jobs = await Job.find({ isActive: true }).lean()
+      const jobIds = jobs.map(j => j._id)
+      const existingMatches = await Match.find({ userId, jobId: { $in: jobIds } }).lean()
+      const matchMap = new Map()
+      existingMatches.forEach(m => matchMap.set(String(m.jobId), m))
+
+      const enriched = jobs.map(job => {
+        const match = matchMap.get(String(job._id))
+        return enrichJobWithMatch(job, match, resumeProfile)
+      })
+
+      enriched.sort((a, b) => {
+        const diff = (b.matchScore || 0) - (a.matchScore || 0)
+        if (diff !== 0) return diff
+        return new Date(b.postedAt || 0) - new Date(a.postedAt || 0)
+      })
+
+      return {
+        jobs: enriched.slice(0, numLimit),
+        total: enriched.length,
+      }
+    }
+
+    const jobs = await Job.find({ isActive: true })
+      .sort({ postedAt: -1 })
+      .limit(numLimit)
+      .lean()
+
+    return {
+      jobs,
+      total: jobs.length,
+    }
+  },
+
+  async getJobById(id, userId) {
     if (mongoose.connection.readyState !== 1) {
       const samples = SAMPLE_JOBS.map((j, idx) => ({ ...j, _id: `sample-${idx + 1}` }))
       return samples.find(j => j._id === id) || samples[0]
     }
-    return Job.findById(id).lean()
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return null
+    }
+
+    const job = await Job.findById(id).lean()
+    if (!job) return null
+
+    if (userId) {
+      const resume = await Resume.findOne({ userId }).sort({ isPrimary: -1, updatedAt: -1 }).lean()
+      const match = await Match.findOne({ userId, jobId: id }).lean()
+      return enrichJobWithMatch(job, match, resume?.parsedProfile)
+    }
+
+    return job
   },
 
   async computeMatchForUser(userId, jobId) {
@@ -317,7 +469,21 @@ const jobService = {
         skills: user.preferences?.targetRoles?.length ? user.preferences.targetRoles : ['JavaScript', 'React'],
       }
 
-      const activeJobs = await Job.find({ isActive: true }).limit(50)
+      const locRegexes = (user.preferences?.locations || []).filter(Boolean).map(l => new RegExp(l, 'i'))
+      const locFilter = locRegexes.length
+        ? {
+            $or: [
+              { location: { $in: locRegexes } },
+              { workMode: 'Remote' },
+              { location: /remote/i },
+            ]
+          }
+        : {}
+
+      let activeJobs = await Job.find({ isActive: true, ...locFilter }).sort({ postedAt: -1 }).limit(50)
+      if (activeJobs.length < 10) {
+        activeJobs = await Job.find({ isActive: true }).sort({ postedAt: -1 }).limit(50)
+      }
       const threshold = user.preferences?.minMatchScore || 60
       let newHighMatches = 0
 

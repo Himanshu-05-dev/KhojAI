@@ -21,7 +21,8 @@ export default function ResumePage() {
     queryFn: () => resumeAPI.list(),
   })
 
-  const resumes = data?.data?.data || []
+  const rawData = data?.data?.data !== undefined ? data.data.data : (data?.data?.resumes || data?.data?.resume || data?.data)
+  const resumes = Array.isArray(rawData) ? rawData : (rawData ? [rawData] : [])
   const resume  = resumes[0]
 
   const uploadMut = useMutation({

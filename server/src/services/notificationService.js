@@ -102,9 +102,10 @@ const notificationService = {
     }
   },
 
-  async getUserNotifications(userId, { page = 1, limit = 20, unreadOnly = false, type } = {}) {
+  async getUserNotifications(userId, { page = 1, limit = 20, unreadOnly = false, unread, type } = {}) {
     const query = { userId }
-    if (unreadOnly) query.isRead = false
+    const isUnread = unreadOnly === true || unreadOnly === 'true' || unread === true || unread === 'true'
+    if (isUnread) query.isRead = false
     if (type && type !== 'all') query.type = type
 
     const skip = (page - 1) * limit

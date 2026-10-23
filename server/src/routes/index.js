@@ -10,10 +10,12 @@ const roadmapRoutes      = require('./roadmap')
 
 router.use('/auth', authRoutes)
 router.use('/jobs', jobRoutes)
+router.use('/resumes', resumeRoutes)
 router.use('/resume', resumeRoutes)
 router.use('/applications', applicationRoutes)
 router.use('/notifications', notificationRoutes)
 router.use('/roadmap', roadmapRoutes)
+router.use('/career/roadmap', roadmapRoutes)
 
 // Health check endpoint
 router.get('/health', (req, res) => {

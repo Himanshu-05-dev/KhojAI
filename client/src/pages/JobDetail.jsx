@@ -9,6 +9,21 @@ import toast from 'react-hot-toast'
 import { useState } from 'react'
 import clsx from 'clsx'
 
+function formatSalary(salary) {
+  if (!salary) return null
+  if (typeof salary === 'string') return salary
+  if (typeof salary === 'object') {
+    const curr = salary.currency === 'USD' ? '$' : (salary.currency || '$')
+    if (salary.min && salary.max) {
+      return `${curr}${salary.min.toLocaleString()} - ${curr}${salary.max.toLocaleString()}/${salary.period || 'yr'}`
+    }
+    if (salary.min) {
+      return `From ${curr}${salary.min.toLocaleString()}/${salary.period || 'yr'}`
+    }
+  }
+  return null
+}
+
 function ScoreBar({ label, score, color }) {
   return (
     <div>
@@ -98,7 +113,7 @@ export default function JobDetailPage() {
             </div>
             <div className="flex items-center gap-4 mt-2 text-sm text-navy-500 flex-wrap">
               <span className="flex items-center gap-1"><MapPin size={13} />{job.location}</span>
-              {job.salary && <span className="text-emerald-600 font-semibold">{job.salary}</span>}
+              {formatSalary(job.salary) && <span className="text-emerald-600 font-semibold">{formatSalary(job.salary)}</span>}
               {job.postedAt && (
                 <span className="flex items-center gap-1">
                   <Clock size={13} /> {formatDistanceToNow(new Date(job.postedAt), { addSuffix: true })}

@@ -5,6 +5,7 @@ const { auth }          = require('../middleware/auth')
 
 router.get('/', auth, roadmapController.getRoadmap)
 router.post('/generate', auth, roadmapController.generateRoadmap)
+router.patch('/tasks/:id', auth, roadmapController.updateTask)
 router.patch('/milestones/:milestoneId', auth, roadmapController.updateMilestoneStatus)
 
 module.exports = router

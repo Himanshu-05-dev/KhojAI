@@ -297,6 +297,7 @@ const aiClient = {
     const match = await this.matchJob(resumeProfile, job)
     return match.copilotPitch
   },
+  localMatchJob,
 }
 
 module.exports = aiClient

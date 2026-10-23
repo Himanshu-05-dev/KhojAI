@@ -15,9 +15,9 @@ export default function InboxPage() {
   const setUnreadCount        = useNotificationStore((s) => s.setUnreadCount)
 
   const params = {
-    type:   filter === 'All' || filter === 'Unread' ? undefined : filter.toLowerCase().replace(' ', '_'),
-    unread: filter === 'Unread' ? true : undefined,
-    limit:  50,
+    type: filter === 'All' || filter === 'Unread' ? undefined : filter.toLowerCase().replace(' ', '_'),
+    unreadOnly: filter === 'Unread' ? true : undefined,
+    limit: 50,
   }
 
   const { data, isLoading } = useQuery({
@@ -46,7 +46,10 @@ export default function InboxPage() {
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['notifications'] }); qc.invalidateQueries({ queryKey: ['unread-count'] }) },
   })
 
-  const notifications = data?.data?.data?.notifications || []
+  const rawNotifications = data?.data?.data !== undefined ? data.data.data : (data?.data?.notifications || data?.data)
+  const notifications = Array.isArray(rawNotifications)
+    ? rawNotifications
+    : (Array.isArray(rawNotifications?.notifications) ? rawNotifications.notifications : [])
   const unread        = countData?.data?.data?.count || 0
 
   return (
@@ -149,12 +152,12 @@ function NotificationItem({ notification: n, onMarkRead }) {
           <span className="text-[11px] text-navy-400">
             {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
           </span>
-          {n.jobId && (
-            <Link to={`/jobs/${n.jobId}`} className="text-[11px] text-primary-600 hover:underline font-medium">
+          {(n.jobId || n.data?.jobId) && (
+            <Link to={`/jobs/${n.jobId || n.data?.jobId}`} className="text-[11px] text-primary-600 hover:underline font-medium">
               View job →
             </Link>
           )}
-          {n.applicationId && (
+          {(n.applicationId || n.data?.applicationId) && (
             <Link to="/applications" className="text-[11px] text-primary-600 hover:underline font-medium">
               View application →
             </Link>
