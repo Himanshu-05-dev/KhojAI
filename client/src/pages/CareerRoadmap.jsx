@@ -114,7 +114,7 @@ export default function CareerRoadmapPage() {
               </h2>
               <div className="flex flex-wrap gap-2">
                 {roadmap.skillGaps.map((s, i) => (
-                  <span key={i} className="badge-amber">{s}</span>
+                  <span key={i} className="badge-amber">{typeof s === 'string' ? s : (s.skill || '')}</span>
                 ))}
               </div>
             </div>
@@ -133,9 +133,9 @@ export default function CareerRoadmapPage() {
                 </h2>
                 {typeTasks.map((task) => (
                   <TaskItem
-                    key={task._id}
+                    key={task._id || task.id}
                     task={task}
-                    onToggle={() => taskMut.mutate({ id: task._id, data: { completed: !task.completed } })}
+                    onToggle={() => taskMut.mutate({ id: task._id || task.id, data: { completed: !task.completed } })}
                     isPending={taskMut.isPending}
                   />
                 ))}

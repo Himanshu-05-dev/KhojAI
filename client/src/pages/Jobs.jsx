@@ -1,32 +1,51 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Search, SlidersHorizontal, X, Briefcase, ChevronDown } from 'lucide-react'
+import { Search, SlidersHorizontal, X, Briefcase, ChevronDown, RefreshCw, MapPin, ExternalLink } from 'lucide-react'
 import { jobsAPI } from '@/api'
+import { useAuthStore } from '@/store'
 import JobCard from '@/components/jobs/JobCard'
+import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
 const JOB_TYPES  = ['All', 'Internship', 'Full-time', 'Part-time', 'Contract']
-const LOCATIONS  = ['All', 'Remote', 'Delhi', 'Mumbai', 'Bangalore', 'Hyderabad', 'Pune', 'Chennai']
+const LOCATIONS  = ['All', 'Remote', 'Delhi', 'Bengaluru', 'Mumbai', 'Hyderabad', 'Pune', 'Chennai', 'Gurugram']
 const EXP_LEVELS = ['All', 'Fresher', '0-1 years', '1-3 years', '3-5 years']
 const SORT_BY    = ['Relevance', 'Match Score', 'Newest', 'Salary']
 
 export default function JobsPage() {
+  const qc = useQueryClient()
+  const user = useAuthStore((s) => s.user)
+  const userPreferredLocations = user?.preferences?.locations || []
+
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState({
     q:        searchParams.get('q') || '',
     jobType:  'All',
-    location: 'All',
+    location: userPreferredLocations[0] || 'All',
     expLevel: 'All',
     sort:     'Relevance',
     page:     1,
+    limit:    15,
   })
   const [filtersOpen, setFiltersOpen] = useState(false)
 
+  const syncMut = useMutation({
+    mutationFn: () => jobsAPI.syncRealJobs(),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['recommended-jobs'] })
+      toast.success(`Synced live jobs! (${res.data?.totalActive || 0} active, ${res.data?.totalInternships || 0} internships)`)
+    },
+    onError: () => toast.error('Failed to sync live jobs from external sources'),
+  })
+
   useEffect(() => {
     const q = searchParams.get('q')
-    if (q) setFilters((f) => ({ ...f, q }))
+    if (q) setFilters((f) => ({ ...f, q, page: 1 }))
   }, [searchParams])
+
+  const effectiveLimit = filters.limit === 'All' ? 100 : Number(filters.limit || 15)
 
   const queryParams = {
     q:        filters.q || undefined,
@@ -35,7 +54,7 @@ export default function JobsPage() {
     expLevel: filters.expLevel !== 'All' ? filters.expLevel : undefined,
     sort:     filters.sort,
     page:     filters.page,
-    limit:    15,
+    limit:    effectiveLimit,
   }
 
   const { data, isLoading, isFetching } = useQuery({
@@ -46,11 +65,47 @@ export default function JobsPage() {
 
   const jobs  = data?.data?.data?.jobs  || []
   const total = data?.data?.data?.total || 0
-  const pages = data?.data?.data?.pages || 1
+  const pages = data?.data?.data?.pages || data?.data?.data?.totalPages || Math.ceil(total / effectiveLimit) || 1
 
   const setFilter = (key, val) => setFilters((f) => ({ ...f, [key]: val, page: 1 }))
 
   const hasActiveFilters = filters.q || filters.jobType !== 'All' || filters.location !== 'All' || filters.expLevel !== 'All'
+
+  const searchQuery = filters.q.trim() || 'Software Engineer'
+  const searchLoc = filters.location !== 'All' ? filters.location : (userPreferredLocations[0] || 'India')
+
+  const externalPortals = [
+    {
+      name: 'Internshala',
+      badge: '🎓 Internships',
+      color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',
+      url: `https://internshala.com/internships/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-internship-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}/`,
+    },
+    {
+      name: 'Naukri',
+      badge: '💼 Jobs',
+      color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+      url: `https://www.naukri.com/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-jobs-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}`,
+    },
+    {
+      name: 'Indeed India',
+      badge: '🌐 Live',
+      color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+      url: `https://in.indeed.com/jobs?q=${encodeURIComponent(searchQuery)}&l=${encodeURIComponent(searchLoc)}`,
+    },
+    {
+      name: 'Microsoft Careers',
+      badge: '🏢 Microsoft',
+      color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+      url: `https://careers.microsoft.com/professionals/us/en/search-results?keywords=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(searchLoc)}`,
+    },
+    {
+      name: 'Amazon Careers',
+      badge: '📦 Amazon',
+      color: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
+      url: `https://www.amazon.jobs/en/search?base_query=${encodeURIComponent(searchQuery + ' ' + searchLoc)}&category[]=software-development`,
+    },
+  ]
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -59,16 +114,47 @@ export default function JobsPage() {
           <h1 className="font-display text-2xl font-bold text-navy-900">Job Discovery</h1>
           <p className="text-navy-500 text-sm mt-0.5">
             {isLoading ? 'Searching…' : `${total} opportunit${total !== 1 ? 'ies' : 'y'} found`}
+            {filters.location !== 'All' && <span className="font-medium text-primary-600"> in {filters.location}</span>}
           </p>
         </div>
-        <button
-          onClick={() => setFiltersOpen(!filtersOpen)}
-          className={clsx('btn-secondary btn-sm gap-2', filtersOpen && 'border-primary-400 text-primary-600')}
-        >
-          <SlidersHorizontal size={15} />
-          Filters
-          {hasActiveFilters && <span className="w-2 h-2 bg-primary-500 rounded-full" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => syncMut.mutate()}
+            disabled={syncMut.isPending}
+            className="btn-secondary btn-sm gap-2 text-navy-700 hover:text-primary-600"
+            title="Fetch latest live tech jobs and internships from Amazon, Remotive, and Arbeitnow"
+          >
+            <RefreshCw size={14} className={clsx(syncMut.isPending && 'animate-spin text-primary-500')} />
+            {syncMut.isPending ? 'Syncing Live Jobs…' : 'Sync Live Jobs'}
+          </button>
+          <button
+            onClick={() => setFiltersOpen(!filtersOpen)}
+            className={clsx('btn-secondary btn-sm gap-2', filtersOpen && 'border-primary-400 text-primary-600')}
+          >
+            <SlidersHorizontal size={15} />
+            Filters
+            {hasActiveFilters && <span className="w-2 h-2 bg-primary-500 rounded-full" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Location Pills */}
+      <div className="flex items-center gap-1.5 flex-wrap text-xs">
+        <span className="text-navy-400 flex items-center gap-1 mr-1"><MapPin size={12} /> Locations:</span>
+        {['All', ...(userPreferredLocations.length ? userPreferredLocations : ['Bengaluru', 'Delhi', 'Hyderabad', 'Mumbai', 'Remote'])].map((loc) => (
+          <button
+            key={loc}
+            onClick={() => setFilter('location', loc)}
+            className={clsx(
+              'px-2.5 py-1 rounded-full border transition-all text-xs font-medium',
+              filters.location === loc
+                ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
+                : 'bg-surface-50 text-navy-600 border-surface-200 hover:bg-surface-100'
+            )}
+          >
+            {loc}
+          </button>
+        ))}
       </div>
 
       {/* Search bar */}
@@ -77,7 +163,7 @@ export default function JobsPage() {
         <input
           type="search"
           id="jobs-search"
-          placeholder="Search by role, company, or skill…"
+          placeholder="Search by role, company, or skill (e.g. SDE Intern, React, Python)…"
           value={filters.q}
           onChange={(e) => setFilter('q', e.target.value)}
           className="input pl-10 text-sm"
@@ -87,6 +173,30 @@ export default function JobsPage() {
             <X size={15} />
           </button>
         )}
+      </div>
+
+      {/* Live Portals Quick Search Bar */}
+      <div className="p-3 bg-gradient-to-r from-surface-50 to-primary-50/30 rounded-xl border border-surface-200/60 flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-xs text-navy-600 flex items-center gap-1.5 font-medium">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          Live Search in <strong className="text-navy-800">{searchLoc}</strong>:
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {externalPortals.map((portal) => (
+            <a
+              key={portal.name}
+              href={portal.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={clsx('text-xs px-2.5 py-1 rounded-lg border font-medium flex items-center gap-1 transition-all shadow-2xs', portal.color)}
+              title={`Search ${searchQuery} in ${searchLoc} on ${portal.name}`}
+            >
+              <span>{portal.badge}</span>
+              <span className="font-semibold">{portal.name}</span>
+              <ExternalLink size={11} className="opacity-70" />
+            </a>
+          ))}
+        </div>
       </div>
 
       {/* Filters panel */}
@@ -145,13 +255,49 @@ export default function JobsPage() {
         </div>
       ) : (
         <>
+          {/* Results toolbar */}
+          <div className="flex items-center justify-between gap-3 flex-wrap text-sm bg-surface-50 p-2.5 rounded-xl border border-surface-200/60">
+            <div className="text-xs font-medium text-navy-600">
+              Showing <span className="font-bold text-navy-900">{total > 0 ? (filters.page - 1) * effectiveLimit + 1 : 0}–{Math.min(filters.page * effectiveLimit, total)}</span> of <span className="font-bold text-primary-600">{total}</span> total opportunities
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-navy-400 mr-0.5">Show:</span>
+                {[15, 30, 50, 'All'].map((lim) => (
+                  <button
+                    key={lim}
+                    onClick={() => setFilter('limit', lim)}
+                    className={clsx(
+                      'px-2 py-0.5 rounded text-xs font-medium transition-all',
+                      filters.limit === lim
+                        ? 'bg-primary-600 text-white shadow-xs'
+                        : 'bg-surface-100 text-navy-600 hover:bg-surface-200'
+                    )}
+                  >
+                    {lim}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-navy-400">Sort:</span>
+                <select
+                  value={filters.sort}
+                  onChange={(e) => setFilter('sort', e.target.value)}
+                  className="input py-0.5 px-2 text-xs h-7 rounded-md"
+                >
+                  {SORT_BY.map((s) => <option key={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className={clsx('grid md:grid-cols-2 lg:grid-cols-3 gap-4', isFetching && 'opacity-70 pointer-events-none transition-opacity')}>
             {jobs.map((job) => <JobCard key={job._id} job={job} />)}
           </div>
 
           {/* Pagination */}
           {pages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-4">
+            <div className="flex items-center justify-center gap-1.5 pt-4 flex-wrap">
               <button
                 onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
                 disabled={filters.page <= 1}
@@ -159,9 +305,29 @@ export default function JobsPage() {
               >
                 Previous
               </button>
-              <span className="text-sm text-navy-600 px-2">
-                Page {filters.page} of {pages}
-              </span>
+              <div className="flex items-center gap-1 mx-1">
+                {[...Array(pages)].map((_, idx) => {
+                  const pNum = idx + 1
+                  if (pages > 8 && Math.abs(pNum - filters.page) > 2 && pNum !== 1 && pNum !== pages) {
+                    if (pNum === 2 || pNum === pages - 1) return <span key={pNum} className="text-navy-300 px-1">…</span>
+                    return null
+                  }
+                  return (
+                    <button
+                      key={pNum}
+                      onClick={() => setFilters((f) => ({ ...f, page: pNum }))}
+                      className={clsx(
+                        'w-8 h-8 rounded-lg text-xs font-semibold transition-all',
+                        filters.page === pNum
+                          ? 'bg-primary-600 text-white shadow-sm'
+                          : 'text-navy-600 hover:bg-surface-100'
+                      )}
+                    >
+                      {pNum}
+                    </button>
+                  )
+                })}
+              </div>
               <button
                 onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
                 disabled={filters.page >= pages}

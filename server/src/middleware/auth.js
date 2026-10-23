@@ -12,7 +12,7 @@ async function auth(req, res, next) {
     const token = header.slice(7).trim()
     const decoded = jwt.verify(token, config.jwtSecret)
 
-    const user = await User.findById(decoded.id)
+    const user = await User.findById(decoded.id || decoded.userId)
     if (!user) {
       return res.status(401).json({ success: false, message: 'User belonging to this token no longer exists.' })
     }
@@ -33,7 +33,7 @@ async function optionalAuth(req, res, next) {
     if (header && header.startsWith('Bearer ')) {
       const token = header.slice(7).trim()
       const decoded = jwt.verify(token, config.jwtSecret)
-      req.user = await User.findById(decoded.id)
+      req.user = await User.findById(decoded.id || decoded.userId)
     }
   } catch (_) {
     // continue without req.user

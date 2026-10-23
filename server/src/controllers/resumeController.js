@@ -20,6 +20,7 @@ const resumeController = {
         success: true,
         message: 'Resume uploaded and processed successfully',
         resume,
+        resumes: [resume],
       })
     } catch (err) {
       next(err)
@@ -29,7 +30,7 @@ const resumeController = {
   async getResume(req, res, next) {
     try {
       const resume = await resumeService.getPrimaryResume(req.user._id)
-      return res.json({ success: true, resume })
+      return res.json({ success: true, resume, resumes: resume ? [resume] : [] })
     } catch (err) {
       next(err)
     }
@@ -48,6 +49,16 @@ const resumeController = {
     try {
       await resumeService.deleteResume(req.user._id, req.params.id)
       return res.json({ success: true, message: 'Resume deleted successfully' })
+    } catch (err) {
+      next(err)
+    }
+  },
+
+  async analyzeResume(req, res, next) {
+    try {
+      const resume = await resumeService.getPrimaryResume(req.user._id)
+      if (!resume) return res.status(404).json({ success: false, message: 'Resume not found' })
+      return res.json({ success: true, message: 'Analysis complete', resume, resumes: [resume] })
     } catch (err) {
       next(err)
     }
