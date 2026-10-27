@@ -152,6 +152,17 @@ Open **http://localhost:5173** in your browser.
 
 ---
 
+### Method 3: Cloud Deployment (Vercel + Render)
+
+Deploy the full stack to production in minutes:
+- **Frontend**: [Vercel](https://vercel.com) (Vite SPA)
+- **Backend API**: [Render](https://render.com) (Node.js Web Service)
+- **Database**: [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) (Free M0 Cluster)
+
+📖 Follow the step-by-step instructions in the [Deployment Guide](DEPLOYMENT.md).
+
+---
+
 ## 🧪 Testing
 
 ### Server API Tests

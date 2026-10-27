@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: khojai-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRY
+        value: 7d
+      - key: CLIENT_URL
+        sync: false
+      - key: DEMO_MODE
+        value: "false"
+      - key: REDIS_URL
+        sync: false
+      - key: AI_SERVICE_URL
+        sync: false
