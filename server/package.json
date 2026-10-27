@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "KhojAI - AI Career Copilot Backend",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
