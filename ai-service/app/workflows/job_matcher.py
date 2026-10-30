@@ -22,7 +22,7 @@ def compare_skills(state: MatchState) -> Dict[str, Any]:
     matching = [js for js in job_skills if any(js in us or us in js for us in resume_skills)]
     missing = [js for js in job_skills if js not in matching]
 
-    ratio = (len(matching) / len(job_skills)) if job_skills else 0.8
+    ratio = (len(matching) / len(job_skills)) if job_skills else (0.75 if matching else 0.25)
     score = min(100, int(ratio * 100))
 
     return {
@@ -57,8 +57,12 @@ def compute_composite_score(state: MatchState) -> Dict[str, Any]:
     l = state["loc_score"]
     ed = state["edu_score"]
 
-    composite = int(s * 0.50 + e * 0.25 + l * 0.15 + ed * 0.10)
-    final_score = max(35, min(99, composite))
+    # If candidate matches 0 required skills, do not falsely inflate score into 60-80%
+    if s == 0 and state.get("missing_skills"):
+        final_score = max(15, min(32, int(e * 0.15 + l * 0.10 + ed * 0.05)))
+    else:
+        composite = int(s * 0.55 + e * 0.20 + l * 0.15 + ed * 0.10)
+        final_score = max(20, min(98, composite))
 
     strengths = []
     if state["matching_skills"]:
@@ -80,11 +84,77 @@ def compute_composite_score(state: MatchState) -> Dict[str, Any]:
         "weaknesses": weaknesses,
     }
 
+from app.clients.llm import llm_client
+import logging
+
+logger = logging.getLogger(__name__)
+
+def deep_llm_match_score(resume_profile: Dict[str, Any], job: Dict[str, Any], baseline: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not (llm_client.nvidia_key or llm_client.openai_key or llm_client.openrouter_key):
+        return None
+
+    candidate_skills = resume_profile.get("skills", [])
+    candidate_exp = resume_profile.get("experienceYears", 0)
+    candidate_summary = resume_profile.get("summary", "")
+
+    job_title = job.get("title", "")
+    company = job.get("company", "")
+    job_skills = job.get("skills", [])
+    job_exp = job.get("experienceLevel", "Entry-level")
+    job_desc = (job.get("description") or "")[:700]
+
+    prompt = (
+        f"You are an expert technical talent evaluator. Evaluate this candidate's match for the role.\n\n"
+        f"JOB POSTING:\n"
+        f"- Role: {job_title} at {company}\n"
+        f"- Required Skills: {', '.join(job_skills) if job_skills else 'General Software Engineering'}\n"
+        f"- Required Level: {job_exp}\n"
+        f"- Description: {job_desc}\n\n"
+        f"CANDIDATE PROFILE:\n"
+        f"- Skills: {', '.join(candidate_skills) if candidate_skills else 'Not specified'}\n"
+        f"- Experience: {candidate_exp} years\n"
+        f"- Summary: {candidate_summary}\n\n"
+        f"Analyze their technical and domain fit. Return ONLY a single JSON object with these exact keys:\n"
+        f"{{\n"
+        f'  "skillsScore": <0-100 integer>,\n'
+        f'  "experienceScore": <0-100 integer>,\n'
+        f'  "educationScore": <0-100 integer>,\n'
+        f'  "locationScore": <0-100 integer>,\n'
+        f'  "overallScore": <0-100 integer>,\n'
+        f'  "strengths": ["<concise strength 1>", "<concise strength 2>"],\n'
+        f'  "missingSkills": ["<skill 1>", "<skill 2>"],\n'
+        f'  "copilotPitch": "<A compelling 3-sentence application pitch for the hiring manager>"\n'
+        f"}}"
+    )
+
+    try:
+        data = llm_client.extract_json(prompt)
+        if data and isinstance(data, dict) and "overallScore" in data:
+            return data
+    except Exception as e:
+        logger.warning(f"LLM match scoring notice: {e}")
+    return None
+
 def generate_pitch(state: MatchState) -> Dict[str, Any]:
     matching = state.get("matching_skills", [])
     skills_text = ", ".join(matching[:3]) if matching else "modern software engineering"
     job_title = state["job"].get("title", "this position")
     company = state["job"].get("company", "your organization")
+    desc = (state["job"].get("description") or "")[:800]
+
+    if llm_client.nvidia_key or llm_client.openai_key:
+        prompt = (
+            f"Write a compelling 3-sentence application pitch for a candidate applying to {company} for the {job_title} role.\n"
+            f"Key matching skills: {skills_text}.\n"
+            f"Job summary: {desc}\n"
+            f"Make it professional, confident, and focused on value delivery. Return only the pitch text."
+        )
+        try:
+            pitch = llm_client.invoke(prompt)
+            if pitch and len(pitch.strip()) > 30:
+                return {"copilot_pitch": pitch.strip()}
+        except Exception:
+            pass
 
     pitch = (
         f"I am excited to apply for the {job_title} role at {company}. "
@@ -126,6 +196,33 @@ def run_match_workflow(resume_profile: Dict[str, Any], job: Dict[str, Any]) -> D
         "copilot_pitch": "",
     }
     res = job_matching_graph.invoke(initial_state)
+
+    # DeepSeek-R1 / High-Parameter Semantic Scoring Evaluation
+    llm_eval = deep_llm_match_score(resume_profile, job, res)
+    if llm_eval:
+        overall = int(llm_eval.get("overallScore") or res["final_score"])
+        s_score = int(llm_eval.get("skillsScore") or res["skills_score"])
+        e_score = int(llm_eval.get("experienceScore") or res["exp_score"])
+        ed_score = int(llm_eval.get("educationScore") or res["edu_score"])
+        l_score = int(llm_eval.get("locationScore") or res["loc_score"])
+        strengths = llm_eval.get("strengths") or res["strengths"]
+        missing = llm_eval.get("missingSkills") or res["missing_skills"]
+        pitch = llm_eval.get("copilotPitch") or res["copilot_pitch"]
+
+        return {
+            "matchScore": min(98, max(15, overall)),
+            "categoryScores": {
+                "skillsMatch": min(100, max(10, s_score)),
+                "experienceMatch": min(100, max(10, e_score)),
+                "educationMatch": min(100, max(10, ed_score)),
+                "locationRoleMatch": min(100, max(10, l_score)),
+            },
+            "matchingSkills": res["matching_skills"],
+            "missingSkills": missing if isinstance(missing, list) else res["missing_skills"],
+            "strengths": strengths if isinstance(strengths, list) else [str(strengths)],
+            "weaknesses": res["weaknesses"],
+            "copilotPitch": pitch,
+        }
 
     return {
         "matchScore": res["final_score"],

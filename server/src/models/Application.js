@@ -1,5 +1,11 @@
 const mongoose = require('mongoose')
 
+const VALID_STATUSES = [
+  'Interested', 'Saved', 'Bookmarked', 'Ready to Apply',
+  'Applied', 'Screening', 'Assessment', 'Interview',
+  'Interviewing', 'Offer', 'Offered', 'Rejected', 'Withdrawn'
+]
+
 const applicationSchema = new mongoose.Schema({
   userId:         { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   jobId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Job' },
@@ -9,7 +15,7 @@ const applicationSchema = new mongoose.Schema({
   jobUrl:         { type: String },
   status: {
     type: String,
-    enum: ['Bookmarked', 'Applied', 'Screening', 'Interviewing', 'Offered', 'Rejected', 'Withdrawn'],
+    enum: VALID_STATUSES,
     default: 'Applied',
     index: true,
   },

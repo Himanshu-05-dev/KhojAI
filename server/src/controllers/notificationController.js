@@ -4,7 +4,11 @@ const notificationController = {
   async listNotifications(req, res, next) {
     try {
       const result = await notificationService.getUserNotifications(req.user._id, req.query)
-      return res.json({ success: true, ...result })
+      return res.json({
+        success: true,
+        ...result,
+        data: result.notifications,
+      })
     } catch (err) {
       next(err)
     }
@@ -13,7 +17,7 @@ const notificationController = {
   async getUnreadCount(req, res, next) {
     try {
       const count = await notificationService.getUnreadCount(req.user._id)
-      return res.json({ success: true, count })
+      return res.json({ success: true, count, data: { count } })
     } catch (err) {
       next(err)
     }

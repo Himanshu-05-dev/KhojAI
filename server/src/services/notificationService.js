@@ -106,7 +106,15 @@ const notificationService = {
     const query = { userId }
     const isUnread = unreadOnly === true || unreadOnly === 'true' || unread === true || unread === 'true'
     if (isUnread) query.isRead = false
-    if (type && type !== 'all') query.type = type
+    if (type && type !== 'all') {
+      const t = String(type).toLowerCase().replace(/[\s-]/g, '_')
+      if (t.includes('job') || t.includes('match')) query.type = 'job_match'
+      else if (t.includes('deadline')) query.type = 'deadline_reminder'
+      else if (t.includes('app')) query.type = 'application_update'
+      else if (t.includes('tip')) query.type = 'career_tip'
+      else if (t.includes('system')) query.type = 'system'
+      else query.type = t
+    }
 
     const skip = (page - 1) * limit
     const [notifications, total] = await Promise.all([

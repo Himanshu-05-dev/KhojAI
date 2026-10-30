@@ -24,6 +24,7 @@ router.use('/career/roadmap', roadmapRoutes)
 
 // Aliases for profile & preferences
 router.get('/profile', auth, authController.getMe)
+router.post('/profile/sync-resume', auth, authController.syncResume)
 router.patch('/profile', auth, validate(updateProfileSchema), authController.updateProfile)
 router.patch('/preferences', auth, validate(updatePreferencesSchema), authController.updatePreferences)
 router.get('/notifications/preferences', auth, (req, res) => {

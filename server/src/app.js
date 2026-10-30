@@ -66,6 +66,7 @@ app.get('/', (req, res) => {
 
 // API version 1 routes & Root routes for flexibility
 app.use('/api/v1', routes)
+app.use('/api', routes)
 app.use('/', routes)
 
 // 404 & Error handling

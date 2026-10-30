@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { MapPin, Clock, Bookmark, BookmarkCheck, ExternalLink, Building2 } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { jobsAPI } from '@/api'
+import { jobsAPI, applicationsAPI } from '@/api'
 import toast from 'react-hot-toast'
 import clsx from 'clsx'
 import { formatDistanceToNow } from 'date-fns'
@@ -10,7 +10,8 @@ function formatSalary(salary) {
   if (!salary) return null
   if (typeof salary === 'string') return salary
   if (typeof salary === 'object') {
-    const curr = salary.currency === 'USD' ? '$' : (salary.currency || '$')
+    if (salary.display) return salary.display
+    const curr = salary.currency === 'INR' ? '₹' : (salary.currency === 'USD' ? '$' : (salary.currency || '₹'))
     if (salary.min && salary.max) {
       return `${curr}${salary.min.toLocaleString()} - ${curr}${salary.max.toLocaleString()}/${salary.period || 'yr'}`
     }
@@ -19,6 +20,15 @@ function formatSalary(salary) {
     }
   }
   return null
+}
+
+function cleanCompanyName(company) {
+  if (!company) return 'Company'
+  return company
+    .replace(/class\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[>\s\n\r]+/g, ' ')
+    .trim() || 'Company'
 }
 
 function ScoreRing({ score }) {
@@ -65,7 +75,7 @@ export default function JobCard({ job, showSaveToggle = true }) {
           </h3>
           <div className="flex items-center gap-1.5 mt-1 text-sm text-navy-600">
             <Building2 size={13} className="flex-shrink-0" />
-            <span className="font-medium truncate">{job.company}</span>
+            <span className="font-medium truncate">{cleanCompanyName(job.company)}</span>
           </div>
         </div>
         {job.matchScore != null && <ScoreRing score={job.matchScore} />}
@@ -113,16 +123,30 @@ export default function JobCard({ job, showSaveToggle = true }) {
           </button>
         )}
         {job.applyUrl && (
-          <a
-            href={job.applyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              window.open(job.applyUrl, '_blank', 'noopener,noreferrer')
+              applicationsAPI.create({
+                jobId: job._id,
+                company: job.company,
+                role: job.title,
+                location: job.location || 'Remote',
+                jobUrl: job.applyUrl,
+                status: 'Applied',
+              }).then(() => {
+                qc.invalidateQueries({ queryKey: ['applications'] })
+                qc.invalidateQueries({ queryKey: ['applications-count'] })
+                toast.success(`Applied to ${job.company} — automatically tracked!`, { duration: 3000 })
+              }).catch(() => {})
+            }}
             className="btn-secondary btn-sm px-2.5"
-            aria-label="Open original listing"
-            title="Open original listing"
+            aria-label="Apply and auto-track"
+            title="Open original listing & automatically track as Applied"
           >
             <ExternalLink size={15} />
-          </a>
+          </button>
         )}
       </div>
     </div>

@@ -56,7 +56,7 @@ export default function CareerRoadmapPage() {
         <div className="space-y-4">{[...Array(3)].map((_,i) => <div key={i} className="card h-28 skeleton" />)}</div>
       ) : !roadmap ? (
         <div className="card card-body flex flex-col items-center py-14 text-center gap-4">
-          <div className="w-14 h-14 bg-violet-50 rounded-2xl flex items-center justify-center text-violet-500">
+          <div className="w-14 h-14 bg-primary-50 rounded-2xl flex items-center justify-center text-primary-600">
             <Map size={28} />
           </div>
           <div>

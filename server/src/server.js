@@ -11,6 +11,8 @@ async function startServer() {
       await connectDB()
       // Seed default jobs if database is fresh
       await jobService.seedDefaultJobs()
+      // Start automated periodic background job discovery (every 30 mins)
+      jobService.startPeriodicJobSync(30)
     } catch (dbErr) {
       logger.warn(`Could not connect to MongoDB at ${config.mongoUri}: ${dbErr.message}. Running in offline/in-memory fallback mode.`)
     }
@@ -30,6 +32,12 @@ async function startServer() {
 
     process.on('SIGTERM', gracefulShutdown)
     process.on('SIGINT', gracefulShutdown)
+    process.on('uncaughtException', (err) => {
+      logger.error(`Uncaught Exception: ${err.message}`, { stack: err.stack })
+    })
+    process.on('unhandledRejection', (reason) => {
+      logger.error('Unhandled Rejection:', reason)
+    })
   } catch (err) {
     logger.error(`Failed to start server: ${err.message}`)
     process.exit(1)

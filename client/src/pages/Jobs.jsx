@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 import clsx from 'clsx'
 
 const JOB_TYPES  = ['All', 'Internship', 'Full-time', 'Part-time', 'Contract']
-const LOCATIONS  = ['All', 'Remote', 'Delhi', 'Bengaluru', 'Mumbai', 'Hyderabad', 'Pune', 'Chennai', 'Gurugram']
+const LOCATIONS  = ['All', 'Remote', 'Delhi', 'Bengaluru', 'Mumbai', 'Hyderabad', 'Pune', 'Chennai', 'Gurugram', 'Outside India']
 const EXP_LEVELS = ['All', 'Fresher', '0-1 years', '1-3 years', '3-5 years']
 const SORT_BY    = ['Relevance', 'Match Score', 'Newest', 'Salary']
 
@@ -31,11 +31,15 @@ export default function JobsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const syncMut = useMutation({
-    mutationFn: () => jobsAPI.syncRealJobs(),
+    mutationFn: () => jobsAPI.syncRealJobs({
+      location: filters.location !== 'All' ? filters.location : undefined,
+      q: filters.q || undefined,
+      jobType: filters.jobType !== 'All' ? filters.jobType : undefined,
+    }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['recommended-jobs'] })
-      toast.success(`Synced live jobs! (${res.data?.totalActive || 0} active, ${res.data?.totalInternships || 0} internships)`)
+      toast.success(`Synced live opportunities! (${res.data?.totalActive || 0} active, ${res.data?.totalInternships || 0} internships)`)
     },
     onError: () => toast.error('Failed to sync live jobs from external sources'),
   })
@@ -72,40 +76,68 @@ export default function JobsPage() {
   const hasActiveFilters = filters.q || filters.jobType !== 'All' || filters.location !== 'All' || filters.expLevel !== 'All'
 
   const searchQuery = filters.q.trim() || 'Software Engineer'
+  const isOutsideIndia = filters.location === 'Outside India'
   const searchLoc = filters.location !== 'All' ? filters.location : (userPreferredLocations[0] || 'India')
 
-  const externalPortals = [
-    {
-      name: 'Internshala',
-      badge: '🎓 Internships',
-      color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',
-      url: `https://internshala.com/internships/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-internship-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}/`,
-    },
-    {
-      name: 'Naukri',
-      badge: '💼 Jobs',
-      color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
-      url: `https://www.naukri.com/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-jobs-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}`,
-    },
-    {
-      name: 'Indeed India',
-      badge: '🌐 Live',
-      color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
-      url: `https://in.indeed.com/jobs?q=${encodeURIComponent(searchQuery)}&l=${encodeURIComponent(searchLoc)}`,
-    },
-    {
-      name: 'Microsoft Careers',
-      badge: '🏢 Microsoft',
-      color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
-      url: `https://careers.microsoft.com/professionals/us/en/search-results?keywords=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(searchLoc)}`,
-    },
-    {
-      name: 'Amazon Careers',
-      badge: '📦 Amazon',
-      color: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
-      url: `https://www.amazon.jobs/en/search?base_query=${encodeURIComponent(searchQuery + ' ' + searchLoc)}&category[]=software-development`,
-    },
-  ]
+  const externalPortals = isOutsideIndia
+    ? [
+        {
+          name: 'Internshala Global',
+          badge: '🌍 Global Internships',
+          color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',
+          url: 'https://internshala.com/internships/international-internship/',
+        },
+        {
+          name: 'Amazon Global (US)',
+          badge: '📦 Amazon US',
+          color: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
+          url: `https://www.amazon.jobs/en/search?base_query=${encodeURIComponent(searchQuery)}&country[]=USA&category[]=software-development`,
+        },
+        {
+          name: 'Microsoft Worldwide',
+          badge: '🏢 Microsoft US/Global',
+          color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+          url: `https://careers.microsoft.com/professionals/us/en/search-results?keywords=${encodeURIComponent(searchQuery)}&country=United%20States`,
+        },
+        {
+          name: 'Indeed Global',
+          badge: '🌐 Worldwide Jobs',
+          color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+          url: `https://www.indeed.com/jobs?q=${encodeURIComponent(searchQuery)}&l=Worldwide`,
+        },
+      ]
+    : [
+        {
+          name: 'Internshala',
+          badge: '🎓 Internships',
+          color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100',
+          url: `https://internshala.com/internships/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-internship-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}/`,
+        },
+        {
+          name: 'Naukri',
+          badge: '💼 Jobs',
+          color: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+          url: `https://www.naukri.com/${encodeURIComponent(searchQuery.toLowerCase().replace(/\s+/g, '-'))}-jobs-in-${encodeURIComponent(searchLoc.toLowerCase().replace(/\s+/g, '-'))}`,
+        },
+        {
+          name: 'Indeed India',
+          badge: '🌐 Live',
+          color: 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100',
+          url: `https://in.indeed.com/jobs?q=${encodeURIComponent(searchQuery)}&l=${encodeURIComponent(searchLoc)}`,
+        },
+        {
+          name: 'Microsoft Careers',
+          badge: '🏢 Microsoft',
+          color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+          url: `https://careers.microsoft.com/professionals/us/en/search-results?keywords=${encodeURIComponent(searchQuery)}&location=${encodeURIComponent(searchLoc)}`,
+        },
+        {
+          name: 'Amazon Careers',
+          badge: '📦 Amazon',
+          color: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
+          url: `https://www.amazon.jobs/en/search?base_query=${encodeURIComponent(searchQuery + ' ' + searchLoc)}&category[]=software-development`,
+        },
+      ]
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -122,7 +154,7 @@ export default function JobsPage() {
             onClick={() => syncMut.mutate()}
             disabled={syncMut.isPending}
             className="btn-secondary btn-sm gap-2 text-navy-700 hover:text-primary-600"
-            title="Fetch latest live tech jobs and internships from Amazon, Remotive, and Arbeitnow"
+            title="Fetch latest live tech jobs and internships from Amazon, Microsoft, Internshala, and Global Portals"
           >
             <RefreshCw size={14} className={clsx(syncMut.isPending && 'animate-spin text-primary-500')} />
             {syncMut.isPending ? 'Syncing Live Jobs…' : 'Sync Live Jobs'}
@@ -155,6 +187,20 @@ export default function JobsPage() {
             {loc}
           </button>
         ))}
+
+        {/* Dedicated Outside India Button */}
+        <button
+          onClick={() => setFilter('location', filters.location === 'Outside India' ? 'All' : 'Outside India')}
+          className={clsx(
+            'px-3 py-1 rounded-full border transition-all text-xs font-semibold flex items-center gap-1.5 shadow-2xs cursor-pointer',
+            filters.location === 'Outside India'
+              ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-600 shadow-sm ring-2 ring-indigo-200'
+              : 'bg-indigo-50/80 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300'
+          )}
+          title="Filter internships and jobs outside India (US, Europe, Singapore, Dubai, Global Remote)"
+        >
+          <span>🌍</span> Outside India
+        </button>
       </div>
 
       {/* Search bar */}

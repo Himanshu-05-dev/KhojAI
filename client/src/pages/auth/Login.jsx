@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Zap, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Zap, Eye, EyeOff, Loader2, KeyRound, X, CheckCircle2 } from 'lucide-react'
 import { authAPI } from '@/api'
 import { useAuthStore } from '@/store'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
-  const [form, setForm]       = useState({ email: '', password: '' })
-  const [showPw, setShowPw]   = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [errors, setErrors]   = useState({})
+  const [form, setForm]             = useState({ email: '', password: '' })
+  const [showPw, setShowPw]         = useState(false)
+  const [loading, setLoading]       = useState(false)
+  const [errors, setErrors]         = useState({})
+  const [resetModal, setResetModal] = useState(false)
+  const [resetEmail, setResetEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
+
   const setAuth    = useAuthStore((s) => s.setAuth)
   const navigate   = useNavigate()
 
@@ -26,7 +31,10 @@ export default function LoginPage() {
     if (Object.keys(errs).length) { setErrors(errs); return }
     setLoading(true); setErrors({})
     try {
-      const res = await authAPI.login(form)
+      const res = await authAPI.login({
+        email: form.email.trim().toLowerCase(),
+        password: form.password,
+      })
       const user = res.data?.data?.user || res.data?.user
       const token = res.data?.data?.token || res.data?.token
       if (!user || !token) {
@@ -36,7 +44,7 @@ export default function LoginPage() {
       toast.success(`Welcome back, ${user.name}!`)
       navigate('/dashboard')
     } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      const msg = err.response?.data?.message || err.message || 'Login failed. Please check your credentials.'
       toast.error(msg)
       if (err.response?.status === 401) setErrors({ password: 'Invalid email or password' })
     } finally {
@@ -44,16 +52,43 @@ export default function LoginPage() {
     }
   }
 
+  const handleResetPassword = async (e) => {
+    e.preventDefault()
+    if (!resetEmail.trim() || !newPassword.trim()) {
+      toast.error('Please enter email and new password')
+      return
+    }
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters')
+      return
+    }
+    setResetLoading(true)
+    try {
+      const res = await authAPI.resetPassword({
+        email: resetEmail.trim().toLowerCase(),
+        newPassword: newPassword.trim(),
+      })
+      toast.success(res?.data?.message || 'Password reset successfully!')
+      setForm({ email: resetEmail.trim(), password: newPassword.trim() })
+      setResetModal(false)
+      setNewPassword('')
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reset password')
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-surface-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface-50 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center">
-              <Zap size={18} className="text-white" />
-            </div>
-            <span className="font-display font-bold text-navy-900 text-2xl">KhojAI</span>
+        <div className="text-center mb-6">
+          <Link to="/" className="inline-flex items-center gap-2.5 mb-4">
+            <img src="/khojai-icon.png" alt="KhojAI" className="w-9 h-9 rounded-xl object-contain shadow-sm" />
+            <span className="font-display font-bold text-navy-900 text-2xl tracking-tight">
+              Khoj<span className="text-orange-500">AI</span>
+            </span>
           </Link>
           <h1 className="font-display text-2xl font-bold text-navy-900">Welcome back</h1>
           <p className="text-navy-500 text-sm mt-1">Sign in to your account to continue</p>
@@ -76,7 +111,19 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="login-password" className="label">Password</label>
+              <div className="flex items-center justify-between mb-1">
+                <label htmlFor="login-password" className="label mb-0">Password</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetEmail(form.email || 'himanshu@gmail.com')
+                    setResetModal(true)
+                  }}
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  Forgot / Reset?
+                </button>
+              </div>
               <div className="relative">
                 <input
                   id="login-password"
@@ -118,6 +165,61 @@ export default function LoginPage() {
           </p>
         </div>
       </div>
+
+      {/* Instant Password Reset Modal */}
+      {resetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="card w-full max-w-md animate-slide-up shadow-xl">
+            <div className="card-header flex items-center justify-between border-b border-surface-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center">
+                  <KeyRound size={16} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-navy-900 text-base">Reset Your Password</h3>
+                  <p className="text-xs text-navy-400">Set a new password for your KhojAI account</p>
+                </div>
+              </div>
+              <button onClick={() => setResetModal(false)} className="btn-ghost p-1.5"><X size={16} /></button>
+            </div>
+
+            <form onSubmit={handleResetPassword} className="card-body space-y-4">
+              <div>
+                <label className="label text-xs">Account Email</label>
+                <input
+                  type="email"
+                  className="input text-sm"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="himanshu@gmail.com"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="label text-xs">New Password (min 6 characters)</label>
+                <input
+                  type="password"
+                  className="input text-sm"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter your new password"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button type="button" onClick={() => setResetModal(false)} className="btn-secondary btn-sm">
+                  Cancel
+                </button>
+                <button type="submit" disabled={resetLoading} className="btn-primary btn-sm gap-2">
+                  {resetLoading && <Loader2 size={14} className="animate-spin" />} Reset Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

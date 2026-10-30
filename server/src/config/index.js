@@ -1,11 +1,16 @@
+const path = require('path')
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') })
+require('dotenv').config({ path: path.resolve(__dirname, '../../../server/.env') })
 require('dotenv').config()
+
+const JWT_FALLBACK = 'super-secret-jwt-key-for-khojai-development-only-32chars'
 
 module.exports = {
   port:        process.env.PORT || 5000,
   nodeEnv:     process.env.NODE_ENV || 'development',
   mongoUri:    process.env.MONGODB_URI || 'mongodb://localhost:27017/khojai',
   redisUrl:    process.env.REDIS_URL   || 'redis://localhost:6379',
-  jwtSecret:   process.env.JWT_SECRET  || 'change-me-in-production',
+  jwtSecret:   process.env.JWT_SECRET  || JWT_FALLBACK,
   jwtExpiry:   process.env.JWT_EXPIRY  || '7d',
   aiServiceUrl: process.env.AI_SERVICE_URL    || 'http://localhost:8000',
   aiServiceKey: process.env.AI_SERVICE_SECRET || 'internal-secret',

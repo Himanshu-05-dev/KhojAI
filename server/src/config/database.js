@@ -1,6 +1,14 @@
+const dns      = require('dns')
 const mongoose = require('mongoose')
 const config   = require('./index')
 const logger   = require('../utils/logger')
+
+// Fix for Node.js querySrv ECONNREFUSED on networks with DNS servers that fail SRV lookups
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4'])
+} catch (e) {
+  logger.warn(`Could not configure fallback DNS servers: ${e.message}`)
+}
 
 let isConnected = false
 

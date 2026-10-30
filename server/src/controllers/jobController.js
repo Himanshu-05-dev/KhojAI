@@ -66,7 +66,7 @@ const jobController = {
 
   async syncRealJobs(req, res, next) {
     try {
-      const result = await jobService.syncRealJobs(req.body)
+      const result = await jobService.syncRealJobs(req.body, req.user)
       return res.json({ success: true, message: 'Real jobs and internships synced successfully', ...result })
     } catch (err) {
       next(err)

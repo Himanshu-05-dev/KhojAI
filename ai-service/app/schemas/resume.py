@@ -25,16 +25,26 @@ class ProjectItem(BaseModel):
     techStack: List[str] = Field(default_factory=list)
     link: Optional[str] = None
 
+class AchievementItem(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    date: Optional[str] = None
+
 class ParsedProfile(BaseModel):
     name: Optional[str] = "Candidate"
     email: Optional[str] = ""
     phone: Optional[str] = ""
+    location: Optional[str] = ""
+    linkedinUrl: Optional[str] = ""
+    githubUrl: Optional[str] = ""
+    portfolioUrl: Optional[str] = ""
     summary: Optional[str] = ""
     skills: List[str] = Field(default_factory=list)
     experienceYears: int = 1
     education: List[EducationItem] = Field(default_factory=list)
     workExperience: List[ExperienceItem] = Field(default_factory=list)
     projects: List[ProjectItem] = Field(default_factory=list)
+    achievements: List[AchievementItem] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
 

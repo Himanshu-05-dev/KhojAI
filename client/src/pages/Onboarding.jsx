@@ -80,11 +80,11 @@ export default function OnboardingPage() {
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center">
-              <Zap size={18} className="text-white" />
-            </div>
-            <span className="font-display font-bold text-navy-900 text-xl">KhojAI</span>
+          <div className="inline-flex items-center gap-2.5 mb-4">
+            <img src="/khojai-icon.png" alt="KhojAI" className="w-9 h-9 rounded-xl object-contain shadow-sm" />
+            <span className="font-display font-bold text-navy-900 text-xl tracking-tight">
+              Khoj<span className="text-orange-500">AI</span>
+            </span>
           </div>
           <h1 className="font-display text-2xl font-bold text-navy-900">Set up your profile</h1>
           <p className="text-navy-500 text-sm mt-1">Takes about 2 minutes</p>

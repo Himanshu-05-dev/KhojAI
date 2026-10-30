@@ -24,6 +24,7 @@ const jobSchema = new mongoose.Schema({
   deadline:         { type: Date },
   postedAt:         { type: Date, default: Date.now, index: true },
   isActive:         { type: Boolean, default: true, index: true },
+  isInternational:  { type: Boolean, default: false, index: true },
   tags:             [{ type: String }],
 }, { timestamps: true })
 

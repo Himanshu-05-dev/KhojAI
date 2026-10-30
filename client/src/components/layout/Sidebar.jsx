@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, Briefcase, Bell, ClipboardList,
-  Map, User, Settings, ChevronLeft, ChevronRight, Zap, LogOut
+  Map, User, Settings, ChevronLeft, LogOut
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useUIStore, useAuthStore, useNotificationStore } from '@/store'
@@ -22,6 +22,7 @@ const navItems = [
 export default function Sidebar() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
   const clearAuth = useAuthStore((s) => s.clearAuth)
   const user = useAuthStore((s) => s.user)
   const unreadCount = useNotificationStore((s) => s.unreadCount)
@@ -32,7 +33,7 @@ export default function Sidebar() {
       await authAPI.logout()
     } catch {/* ignore */} finally {
       clearAuth()
-      navigate('/auth/login')
+      navigate('/')
       toast.success('Logged out successfully')
     }
   }
@@ -45,24 +46,60 @@ export default function Sidebar() {
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
-      {/* Logo */}
-      <div className={clsx('flex items-center h-16 px-4 border-b border-surface-100', sidebarOpen ? 'gap-3' : 'justify-center')}>
-        <div className="flex-shrink-0 w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
-          <Zap size={16} className="text-white" />
-        </div>
-        {sidebarOpen && (
-          <span className="font-display font-bold text-navy-900 text-lg">KhojAI</span>
+      {/* Top Header: Logo + Collapse Button (Near Logo) */}
+      <div
+        className={clsx(
+          'flex items-center h-16 px-4 border-b border-surface-100 transition-all',
+          sidebarOpen ? 'justify-between' : 'justify-center'
+        )}
+      >
+        {sidebarOpen ? (
+          <>
+            <div
+              onClick={() => navigate('/dashboard')}
+              className="flex items-center gap-2.5 cursor-pointer select-none group"
+              title="KhojAI Dashboard"
+            >
+              <img src="/khojai-icon.png" alt="KhojAI" className="w-8 h-8 rounded-lg object-contain shadow-sm" />
+              <span className="font-display font-bold text-navy-900 text-lg tracking-tight">
+                Khoj<span className="text-orange-500">AI</span>
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-lg text-navy-400 hover:text-navy-700 hover:bg-surface-100 transition-colors"
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
+            >
+              <ChevronLeft size={18} />
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all"
+            title="Click logo to open sidebar"
+            aria-label="Click logo to open sidebar"
+          >
+            <img src="/khojai-icon.png" alt="KhojAI" className="w-8 h-8 rounded-lg object-contain shadow-sm" />
+          </button>
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto scrollbar-thin">
+      {/* Nav: Symbols for each service always visible */}
+      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto scrollbar-thin">
         {navItems.map(({ label, to, icon: Icon, badge }) => (
           <NavLink
             key={to}
             to={to}
             className={({ isActive }) =>
-              clsx(isActive ? 'nav-item-active' : 'nav-item', !sidebarOpen && 'justify-center px-2')
+              clsx(
+                isActive ? 'nav-item-active' : 'nav-item',
+                !sidebarOpen && 'justify-center px-2 py-2.5'
+              )
             }
             title={!sidebarOpen ? label : undefined}
           >
@@ -88,7 +125,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* User + Collapse */}
+      {/* User + Logout (No collapse button at bottom) */}
       <div className="border-t border-surface-100 p-2 space-y-1">
         {sidebarOpen && user && (
           <div className="px-3 py-2 rounded-xl bg-surface-50 mb-1">
@@ -98,19 +135,14 @@ export default function Sidebar() {
         )}
         <button
           onClick={handleLogout}
-          className={clsx('nav-item w-full text-red-500 hover:bg-red-50 hover:text-red-600', !sidebarOpen && 'justify-center px-2')}
+          className={clsx(
+            'nav-item w-full text-red-500 hover:bg-red-50 hover:text-red-600',
+            !sidebarOpen && 'justify-center px-2 py-2.5'
+          )}
           title={!sidebarOpen ? 'Logout' : undefined}
         >
           <LogOut size={18} />
           {sidebarOpen && <span>Logout</span>}
-        </button>
-        <button
-          onClick={toggleSidebar}
-          className={clsx('nav-item w-full text-navy-500', !sidebarOpen && 'justify-center px-2')}
-          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-        >
-          {sidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
-          {sidebarOpen && <span className="text-xs">Collapse</span>}
         </button>
       </div>
     </aside>

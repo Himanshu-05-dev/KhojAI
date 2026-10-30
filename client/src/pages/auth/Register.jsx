@@ -63,11 +63,11 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-surface-50 flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link to="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-9 h-9 bg-primary-600 rounded-xl flex items-center justify-center">
-              <Zap size={18} className="text-white" />
-            </div>
-            <span className="font-display font-bold text-navy-900 text-2xl">KhojAI</span>
+          <Link to="/" className="inline-flex items-center gap-2.5 mb-6">
+            <img src="/khojai-icon.png" alt="KhojAI" className="w-9 h-9 rounded-xl object-contain shadow-sm" />
+            <span className="font-display font-bold text-navy-900 text-2xl tracking-tight">
+              Khoj<span className="text-orange-500">AI</span>
+            </span>
           </Link>
           <h1 className="font-display text-2xl font-bold text-navy-900">Create your account</h1>
           <p className="text-navy-500 text-sm mt-1">Start your smarter job search — free</p>

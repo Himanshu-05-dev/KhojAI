@@ -13,7 +13,8 @@ function formatSalary(salary) {
   if (!salary) return null
   if (typeof salary === 'string') return salary
   if (typeof salary === 'object') {
-    const curr = salary.currency === 'USD' ? '$' : (salary.currency || '$')
+    if (salary.display) return salary.display
+    const curr = salary.currency === 'INR' ? '₹' : (salary.currency === 'USD' ? '$' : (salary.currency || '₹'))
     if (salary.min && salary.max) {
       return `${curr}${salary.min.toLocaleString()} - ${curr}${salary.max.toLocaleString()}/${salary.period || 'yr'}`
     }
@@ -24,15 +25,83 @@ function formatSalary(salary) {
   return null
 }
 
-function ScoreBar({ label, score, color }) {
+function cleanCompanyName(company) {
+  if (!company) return 'Company'
+  return company
+    .replace(/class\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/[>\s\n\r]+/g, ' ')
+    .trim() || 'Company'
+}
+
+function cleanJobDescription(desc, job = {}) {
+  if (!desc) return 'No description available.'
+
+  // Strip raw HTML tags and stray attributes like class="...", id="...", href="..."
+  let text = String(desc)
+    .replace(/<br\s*[/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/class\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/id\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/href\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/style\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/[a-zA-Z0-9_-]+\s*=\s*["'][^"']*["']\s*>?/gi, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+
+  // Clean up awkward indentation and excessive spaces per line
+  text = text
+    .split('\n')
+    .map(line => line.replace(/[ \t]+/g, ' ').trim())
+    .filter((line, i, arr) => !(line === '' && arr[i - 1] === ''))
+    .join('\n')
+    .trim()
+
+  // Format short targeted synthetic descriptions into a structured presentation
+  if (text.startsWith('Targeted opportunity for') || text.startsWith('Live internship opportunity for')) {
+    const comp = cleanCompanyName(job.company) || 'Organization'
+    const role = job.title || 'Software Developer'
+    const loc = job.location || 'India'
+    const mode = job.workMode || 'Remote'
+    const type = job.jobType || 'Internship'
+    const sal = formatSalary(job.salary) || 'Competitive / As per industry standards'
+    const skills = job.skills && job.skills.length > 0 ? job.skills.join(', ') : 'Software Engineering, Problem Solving'
+
+    return `${comp} is offering a ${type.toLowerCase()} opportunity for the role of ${role}.\n\n` +
+      `Overview:\n` +
+      `• Position: ${role}\n` +
+      `• Organization: ${comp}\n` +
+      `• Location: ${loc} (${mode})\n` +
+      `• Compensation / Stipend: ${sal}\n` +
+      `• Tech Stack / Skills: ${skills}\n\n` +
+      `About the Opportunity:\n` +
+      `You will work with the engineering team at ${comp} on real-world projects, gaining practical experience in ${skills}. You'll collaborate on feature implementations, code reviews, and modern development practices.`
+  }
+
+  return text
+}
+
+function ScoreBar({ label, score }) {
+  const safeScore = Math.min(100, Math.max(0, Number(score) || 0))
+  const barColor = safeScore >= 75 ? 'bg-emerald-500' : safeScore >= 50 ? 'bg-amber-500' : 'bg-red-500'
+  const textColor = safeScore >= 75 ? 'text-emerald-600' : safeScore >= 50 ? 'text-amber-600' : 'text-red-500'
+
   return (
     <div>
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-navy-600">{label}</span>
-        <span className={`font-semibold ${color}`}>{score}%</span>
+      <div className="flex justify-between text-xs mb-1.5">
+        <span className="text-navy-600 font-medium">{label}</span>
+        <span className={`font-semibold ${textColor}`}>{safeScore}%</span>
       </div>
-      <div className="h-1.5 bg-surface-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${color.replace('text-', 'bg-')}`} style={{ width: `${score}%` }} />
+      <div className="h-2 bg-surface-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+          style={{ width: `${safeScore}%` }}
+        />
       </div>
     </div>
   )
@@ -62,15 +131,46 @@ export default function JobDetailPage() {
     onSuccess: (_, type) => toast.success(`Feedback recorded: ${type}`),
   })
 
+  const { data: appsData } = useQuery({
+    queryKey: ['applications'],
+    queryFn: () => applicationsAPI.list(),
+  })
+
+  const allApps = appsData?.data?.applications || appsData?.data?.data?.applications || []
+  const trackedApp = allApps.find(a => String(a.jobId?._id || a.jobId) === String(id))
+
   const applyMut = useMutation({
-    mutationFn: () => applicationsAPI.create({ jobId: id, status: 'Interested' }),
-    onSuccess: () => {
+    mutationFn: (customData) => applicationsAPI.create({
+      jobId: id,
+      company: job?.company,
+      role: job?.title,
+      location: job?.location || 'Remote',
+      jobUrl: job?.applyUrl || window.location.href,
+      status: customData?.status || (trackedApp ? trackedApp.status : 'Applied'),
+      notes: customData?.notes || (trackedApp ? trackedApp.notes : ''),
+    }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['applications'] })
       qc.invalidateQueries({ queryKey: ['applications-count'] })
-      toast.success('Added to your application tracker!')
+      qc.invalidateQueries({ queryKey: ['applications-overview'] })
+      toast.success(res?.data?.message || 'Application tracked automatically!')
       setApplying(false)
     },
-    onError: () => toast.error('Failed to add to tracker'),
+    onError: (err) => {
+      const msg = err.response?.data?.message || 'Failed to update tracker'
+      toast.error(msg)
+    },
   })
+
+  const handleApplyAndAutoTrack = () => {
+    if (job?.applyUrl) {
+      window.open(job.applyUrl, '_blank', 'noopener,noreferrer')
+    }
+    applyMut.mutate({
+      status: 'Applied',
+      notes: `Applied directly on ${job?.source || 'external site'} (${new Date().toLocaleDateString()})`
+    })
+  }
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-24">
@@ -109,7 +209,7 @@ export default function JobDetailPage() {
             </div>
             <h1 className="font-display text-2xl font-bold text-navy-900">{job.title}</h1>
             <div className="flex items-center gap-2 mt-1 text-navy-600 font-medium">
-              <Building2 size={16} />{job.company}
+              <Building2 size={16} />{cleanCompanyName(job.company)}
             </div>
             <div className="flex items-center gap-4 mt-2 text-sm text-navy-500 flex-wrap">
               <span className="flex items-center gap-1"><MapPin size={13} />{job.location}</span>
@@ -130,16 +230,51 @@ export default function JobDetailPage() {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 mt-4 flex-wrap">
-          {job.applyUrl && (
-            <a href={job.applyUrl} target="_blank" rel="noopener noreferrer" className="btn-primary gap-2">
-              Apply on {job.source || 'source'} <ExternalLink size={14} />
-            </a>
+        <div className="flex gap-2.5 mt-4 flex-wrap items-center">
+          {job.applyUrl ? (
+            <button
+              onClick={handleApplyAndAutoTrack}
+              disabled={applyMut.isPending}
+              className="btn-primary gap-2"
+              title="Open application link and automatically record in tracker as Applied"
+            >
+              {applyMut.isPending ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
+              Apply on {job.source || 'source'} (Auto-Track)
+            </button>
+          ) : (
+            <button
+              onClick={() => applyMut.mutate({ status: 'Applied' })}
+              disabled={applyMut.isPending}
+              className="btn-primary gap-2"
+            >
+              <CheckCircle size={15} /> Mark as Applied
+            </button>
           )}
-          <button onClick={() => applyMut.mutate()} disabled={applyMut.isPending} className="btn-secondary gap-2">
-            <ClipboardList size={15} />
-            {applyMut.isPending ? 'Adding…' : 'Track application'}
-          </button>
+
+          {trackedApp ? (
+            <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-xl text-sm font-medium">
+              <CheckCircle size={15} className="text-emerald-600" />
+              <span>Status:</span>
+              <select
+                value={trackedApp.status}
+                onChange={(e) => applyMut.mutate({ status: e.target.value })}
+                className="bg-transparent font-semibold border-none text-emerald-900 focus:ring-0 cursor-pointer text-sm py-0 pl-1 pr-6"
+              >
+                {['Interested','Saved','Ready to Apply','Applied','Screening','Assessment','Interview','Offer','Rejected','Withdrawn'].map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <button
+              onClick={() => applyMut.mutate({ status: 'Interested' })}
+              disabled={applyMut.isPending}
+              className="btn-secondary btn-sm gap-2"
+            >
+              <ClipboardList size={15} /> Track application
+            </button>
+          )}
+
           <button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="btn-secondary gap-2">
             {job.isSaved ? <BookmarkCheck size={15} className="text-primary-600" /> : <Bookmark size={15} />}
             {job.isSaved ? 'Saved' : 'Save'}
@@ -152,8 +287,8 @@ export default function JobDetailPage() {
         <div className="lg:col-span-2 space-y-5">
           <div className="card card-body">
             <h2 className="font-semibold text-navy-900 mb-3">Job Description</h2>
-            <div className="text-sm text-navy-600 leading-relaxed whitespace-pre-wrap prose-sm">
-              {job.description || 'No description available.'}
+            <div className="text-sm text-navy-600 leading-relaxed whitespace-pre-line prose-sm">
+              {cleanJobDescription(job.description, job)}
             </div>
           </div>
 
@@ -193,7 +328,7 @@ export default function JobDetailPage() {
               <h2 className="font-semibold text-navy-900 mb-4">Match Breakdown</h2>
               <div className="space-y-3">
                 {Object.entries(job.matchBreakdown).map(([k, v]) => (
-                  <ScoreBar key={k} label={formatKey(k)} score={Math.round(v)} color={matchColor} />
+                  <ScoreBar key={k} label={formatKey(k)} score={Math.round(v)} />
                 ))}
               </div>
             </div>
@@ -259,5 +394,11 @@ export default function JobDetailPage() {
 }
 
 function formatKey(k) {
-  return k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())
+  const map = {
+    skillsMatch: 'Skills Match',
+    experienceMatch: 'Experience Match',
+    educationMatch: 'Education Match',
+    locationRoleMatch: 'Location / Work Mode',
+  }
+  return map[k] || k.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())
 }

@@ -2,9 +2,67 @@ const mongoose     = require('mongoose')
 const Job            = require('../models/Job')
 const Match          = require('../models/Match')
 const Resume         = require('../models/Resume')
+const User           = require('../models/User')
 const aiClient       = require('../clients/aiClient')
 const notificationService = require('./notificationService')
 const logger         = require('../utils/logger')
+
+function escapeRegExp(string) {
+  return String(string || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function isHighSalaryJob(job) {
+  if (!job || !job.salary) return false
+  const sal = job.salary
+  const disp = String(sal.display || '')
+
+  // Period-based numeric checks
+  if (sal.min) {
+    if (sal.period === 'hourly' && sal.min >= 15) return true
+    if (sal.period === 'monthly' && sal.min >= 10000) return true
+    if (sal.period === 'yearly' && (sal.min >= 300000 || (sal.currency === 'USD' && sal.min >= 40000))) return true
+    if (!sal.period && sal.min >= 10000) return true
+  }
+  if (sal.max) {
+    if (sal.period === 'hourly' && sal.max >= 20) return true
+    if (sal.period === 'monthly' && sal.max >= 10000) return true
+    if (sal.period === 'yearly' && (sal.max >= 300000 || (sal.currency === 'USD' && sal.max >= 40000))) return true
+    if (!sal.period && sal.max >= 10000) return true
+  }
+
+  // Text-based checks on display string (e.g. ₹100,000, 10k+, $50/hr, 6 LPA)
+  if (/(?:₹|rs\.?|inr)\s*(?:[1-9]\d{4,}|\d{2,}\s*k)/i.test(disp)) return true
+  if (/\b(?:1[0-9]|[2-9][0-9])\s*k\s*\/?\s*(?:mo|month|pm)?/i.test(disp)) return true
+  if (/\b[3-9]\s*(?:lpa|lakhs?|lac)\b/i.test(disp)) return true
+  if (/\$\s*(?:[3-9]\d{4,}|\d{2,}\s*k|[2-9]\d\/hr)/i.test(disp)) return true
+  if (/100,000|125,000|[1-9]\d{4,}/.test(disp)) return true
+
+  return false
+}
+
+function shouldNotifyJob(job, matchScore) {
+  // 1. Must satisfy high match score (>= 80%)
+  if (!matchScore || matchScore < 80) return false
+
+  // 2. Filter out non-technical roles that software engineers shouldn't get notified for
+  const title = String(job?.title || '').toLowerCase()
+  const excludedRoles = [
+    'recruiter', 'sourcer', 'talent acquisition', 'telecaller', 'telecall',
+    'bpo', 'call center', 'data entry', 'telemarketer', 'sales', 'business development',
+    'social media', 'content writer', 'copywriter', 'seo intern', 'customer support',
+    'operations associate'
+  ]
+  if (excludedRoles.some(role => title.includes(role))) {
+    return false
+  }
+
+  // 3. Must be high salary / stipend (>= ₹10,000/mo or equivalent)
+  if (!isHighSalaryJob(job)) {
+    return false
+  }
+
+  return true
+}
 
 const SAMPLE_JOBS = [
   {
@@ -162,16 +220,66 @@ const SAMPLE_JOBS = [
   },
 ]
 
-function enrichJobWithMatch(job, match, resumeProfile) {
-  let m = match
-  if (!m && resumeProfile) {
-    m = aiClient.localMatchJob ? aiClient.localMatchJob(resumeProfile, job) : null
+function sanitizeJobRecord(job) {
+  if (!job) return job
+  let company = job.company || 'Company'
+  if (company.includes('class=') || company.includes('company-name') || company.includes('>')) {
+    company = company
+      .replace(/class\s*=\s*["'][^"']*["']\s*>?/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/[>\s\n\r]+/g, ' ')
+      .trim()
   }
 
-  if (!m) return job
+  let description = job.description || ''
+  if (description.includes('class=') || description.includes('company-name') || description.includes('>')) {
+    description = description
+      .replace(/class\s*=\s*["'][^"']*["']\s*>?/gi, '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s*\n/g, '\n\n')
+      .trim()
+  }
+
+  // Format short targeted synthetic descriptions into a clean, complete structure
+  if (description.startsWith('Targeted opportunity for') || description.startsWith('Live internship opportunity for')) {
+    const role = job.title || 'Software Developer'
+    const cleanComp = company || 'Organization'
+    const loc = job.location || 'India'
+    const mode = job.workMode || 'Remote'
+    const type = job.jobType || 'Internship'
+    const stipend = job.salary?.display || 'Competitive / As per industry standards'
+    const skillsList = job.skills && job.skills.length > 0 ? job.skills.slice(0, 5).join(', ') : 'Software Development, Problem Solving'
+
+    description = `${cleanComp} is offering a ${type.toLowerCase()} opportunity for the role of ${role}.\n\n` +
+      `Overview:\n` +
+      `• Position: ${role}\n` +
+      `• Organization: ${cleanComp}\n` +
+      `• Location: ${loc} (${mode})\n` +
+      `• Stipend / Compensation: ${stipend}\n` +
+      `• Core Skills: ${skillsList}\n\n` +
+      `About the Opportunity:\n` +
+      `You will work with active engineering teams at ${cleanComp} on production features, gaining practical experience in ${skillsList} in an agile development environment.`
+  }
 
   return {
     ...job,
+    company: company || 'Company',
+    description: description || 'No description available.',
+  }
+}
+
+function enrichJobWithMatch(job, match, resumeProfile) {
+  const cleanJob = sanitizeJobRecord(job)
+  let m = match
+  if (!m && resumeProfile) {
+    m = aiClient.localMatchJob ? aiClient.localMatchJob(resumeProfile, cleanJob) : null
+  }
+
+  if (!m) return cleanJob
+
+  return {
+    ...cleanJob,
     matchScore: m.matchScore,
     categoryScores: m.categoryScores,
     matchBreakdown: m.categoryScores,
@@ -204,13 +312,64 @@ const jobService = {
       realJobFetcher.syncAllRealJobs({ maxJobs: 50 }).catch(err => {
         logger.warn(`Initial real job sync notice: ${err.message}`)
       })
+
+      // Clean up any legacy dirty jobs with raw HTML in company/description
+      Job.find({ $or: [{ company: /company-name/i }, { description: /company-name/i }] }).lean().then(dirtyJobs => {
+        if (dirtyJobs && dirtyJobs.length > 0) {
+          for (const dj of dirtyJobs) {
+            const clean = sanitizeJobRecord(dj)
+            Job.updateOne({ _id: dj._id }, { $set: { company: clean.company, description: clean.description } }).catch(() => {})
+          }
+          logger.info(`Cleaned ${dirtyJobs.length} legacy job postings with HTML artifacts.`)
+        }
+      }).catch(() => {})
     } catch (err) {
       logger.error(`Error seeding jobs: ${err.message}`)
     }
   },
 
-  async syncRealJobs(options = {}) {
+  startPeriodicJobSync(intervalMinutes = 30) {
+    if (this._syncInterval) clearInterval(this._syncInterval)
+    const intervalMs = intervalMinutes * 60 * 1000
+    logger.info(`⏰ Automated background job sync initialized: running every ${intervalMinutes} minutes.`)
+
+    this._syncInterval = setInterval(async () => {
+      try {
+        logger.info('🔄 [Auto-Fetch] Running scheduled background sync for new jobs & internships...')
+        const realJobFetcher = require('./realJobFetcher')
+        await realJobFetcher.syncAllRealJobs({ maxJobs: 50 })
+
+        // Auto-run discovery for registered users with active resumes
+        const primaryResumes = await Resume.find({ isPrimary: true }).distinct('userId')
+        if (primaryResumes.length > 0) {
+          const users = await User.find({ _id: { $in: primaryResumes } }).limit(25)
+          for (const u of users) {
+            await this.runDiscoveryForUser(u).catch(() => {})
+          }
+        }
+      } catch (err) {
+        logger.warn(`[Auto-Fetch] Scheduled sync notice: ${err.message}`)
+      }
+    }, intervalMs)
+  },
+
+  async syncRealJobs(options = {}, user = null) {
     const realJobFetcher = require('./realJobFetcher')
+    if (options.location && /outside[\s_-]*india|international|foreign|global/i.test(options.location)) {
+      await realJobFetcher.fetchOutsideIndiaJobs(options.limit || 35).catch(() => {})
+    }
+    if (user) {
+      const resume = await Resume.findOne({ userId: user._id, isPrimary: true })
+      const skills = (resume?.parsedProfile?.skills || user.preferences?.targetRoles || [])
+      const locations = options.location ? [options.location] : (user.preferences?.locations || [])
+      if (skills.length > 0 || locations.length > 0) {
+        await realJobFetcher.fetchTargetedInternshipsAndJobs({
+          skills,
+          locations,
+          limit: 30,
+        }).catch(() => {})
+      }
+    }
     return await realJobFetcher.syncAllRealJobs(options)
   },
 
@@ -245,14 +404,31 @@ const jobService = {
 
     if (q) {
       filter.$or = [
-        { title: { $regex: q, $options: 'i' } },
-        { company: { $regex: q, $options: 'i' } },
-        { skills: { $in: [new RegExp(q, 'i')] } },
+        { title: { $regex: escapeRegExp(q), $options: 'i' } },
+        { company: { $regex: escapeRegExp(q), $options: 'i' } },
+        { skills: { $in: [new RegExp(escapeRegExp(q), 'i')] } },
       ]
     }
 
-    if (location && location !== 'all') {
-      filter.location = { $regex: location, $options: 'i' }
+    if (location && String(location).trim().toLowerCase() !== 'all') {
+      const locStr = String(location).trim()
+      if (/outside[\s_-]*india|international|foreign/i.test(locStr)) {
+        const intlCondition = {
+          $or: [
+            { isInternational: true },
+            { tags: { $in: [/outside india/i, /international/i] } },
+            { location: { $regex: /outside india|remote worldwide|united states|usa|dubai|singapore|london|germany|canada|berlin|uk|europe|australia|international/i } },
+          ],
+        }
+        if (filter.$or) {
+          filter.$and = [{ $or: filter.$or }, intlCondition]
+          delete filter.$or
+        } else {
+          filter.$or = intlCondition.$or
+        }
+      } else {
+        filter.location = { $regex: locStr, $options: 'i' }
+      }
     }
 
     if (workMode && workMode !== 'all') {
@@ -274,7 +450,7 @@ const jobService = {
     if (skills) {
       const skillList = Array.isArray(skills) ? skills : skills.split(',').map(s => s.trim())
       if (skillList.length > 0) {
-        filter.skills = { $in: skillList.map(s => new RegExp(s, 'i')) }
+        filter.skills = { $in: skillList.map(s => new RegExp(escapeRegExp(s), 'i')) }
       }
     }
 
@@ -309,6 +485,13 @@ const jobService = {
 
       const skip = (Number(page) - 1) * Number(limit)
       const paginated = enriched.slice(skip, skip + Number(limit))
+
+      // Automatically trigger instant notifications for top jobs that suit skills & have high salary
+      for (const pj of paginated.slice(0, 6)) {
+        if (shouldNotifyJob(pj, pj.matchScore)) {
+          this.notifyHighMatchIfNew(userId, pj, pj.matchScore).catch(() => {})
+        }
+      }
 
       return {
         jobs: paginated,
@@ -348,7 +531,7 @@ const jobService = {
     }
 
     return {
-      jobs: finalJobs,
+      jobs: finalJobs.map(sanitizeJobRecord),
       total,
       page: Number(page),
       pages: Math.ceil(total / Number(limit)) || 1,
@@ -382,8 +565,15 @@ const jobService = {
         return new Date(b.postedAt || 0) - new Date(a.postedAt || 0)
       })
 
+      const topRecs = enriched.slice(0, numLimit)
+      for (const rj of topRecs) {
+        if (shouldNotifyJob(rj, rj.matchScore)) {
+          this.notifyHighMatchIfNew(userId, rj, rj.matchScore).catch(() => {})
+        }
+      }
+
       return {
-        jobs: enriched.slice(0, numLimit),
+        jobs: topRecs,
         total: enriched.length,
       }
     }
@@ -394,7 +584,7 @@ const jobService = {
       .lean()
 
     return {
-      jobs,
+      jobs: jobs.map(sanitizeJobRecord),
       total: jobs.length,
     }
   },
@@ -402,7 +592,8 @@ const jobService = {
   async getJobById(id, userId) {
     if (mongoose.connection.readyState !== 1) {
       const samples = SAMPLE_JOBS.map((j, idx) => ({ ...j, _id: `sample-${idx + 1}` }))
-      return samples.find(j => j._id === id) || samples[0]
+      const found = samples.find(j => j._id === id) || samples[0]
+      return sanitizeJobRecord(found)
     }
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -411,14 +602,15 @@ const jobService = {
 
     const job = await Job.findById(id).lean()
     if (!job) return null
+    const sanitized = sanitizeJobRecord(job)
 
     if (userId) {
       const resume = await Resume.findOne({ userId }).sort({ isPrimary: -1, updatedAt: -1 }).lean()
       const match = await Match.findOne({ userId, jobId: id }).lean()
-      return enrichJobWithMatch(job, match, resume?.parsedProfile)
+      return enrichJobWithMatch(sanitized, match, resume?.parsedProfile)
     }
 
-    return job
+    return sanitized
   },
 
   async computeMatchForUser(userId, jobId) {
@@ -454,6 +646,48 @@ const jobService = {
     return { match, job }
   },
 
+  async notifyHighMatchIfNew(userId, job, matchScore) {
+    try {
+      if (!userId || !job) return
+      if (!shouldNotifyJob(job, matchScore)) return
+      const Notification = require('../models/Notification')
+      const notificationService = require('./notificationService')
+
+      const alreadyNotified = await Notification.exists({
+        userId,
+        'data.jobId': job._id,
+      })
+      if (alreadyNotified) return
+
+      const stipendDisplay = job.salary?.display || (job.salary?.min ? `₹${job.salary.min.toLocaleString('en-IN')}/${job.salary.period || 'mo'}` : '')
+
+      const title = stipendDisplay
+        ? `💰 High Stipend (${stipendDisplay}): ${job.title} at ${job.company} (${matchScore}%)`
+        : `🎯 High Match (${matchScore}%): ${job.title} at ${job.company}`
+
+      const message = stipendDisplay
+        ? `KhojAI found a high-paying opportunity (${stipendDisplay}) matching your skills: ${job.title} at ${job.company} (${job.location || 'Remote'}).`
+        : `KhojAI found a high-match opportunity for your skills: ${job.title} at ${job.company} (${job.location || 'Remote'}).`
+
+      await notificationService.sendNotification({
+        userId,
+        type: 'job_match',
+        title,
+        message,
+        data: {
+          jobId: job._id,
+          matchScore,
+          stipend: stipendDisplay,
+          company: job.company,
+        },
+        channel: 'in_app',
+      })
+      logger.info(`Generated instant notification for high match & salary: ${job.title} at ${job.company} (${matchScore}%) for user ${userId}`)
+    } catch (err) {
+      logger.warn(`Could not send instant match notification: ${err.message}`)
+    }
+  },
+
   async getUserMatches(userId, { minScore = 0, limit = 20 } = {}) {
     return Match.find({ userId, matchScore: { $gte: Number(minScore) } })
       .populate('jobId')
@@ -469,23 +703,34 @@ const jobService = {
         skills: user.preferences?.targetRoles?.length ? user.preferences.targetRoles : ['JavaScript', 'React'],
       }
 
-      const locRegexes = (user.preferences?.locations || []).filter(Boolean).map(l => new RegExp(l, 'i'))
-      const locFilter = locRegexes.length
-        ? {
-            $or: [
-              { location: { $in: locRegexes } },
-              { workMode: 'Remote' },
-              { location: /remote/i },
-            ]
-          }
-        : {}
-
-      let activeJobs = await Job.find({ isActive: true, ...locFilter }).sort({ postedAt: -1 }).limit(50)
-      if (activeJobs.length < 10) {
-        activeJobs = await Job.find({ isActive: true }).sort({ postedAt: -1 }).limit(50)
+      // Proactively fetch live targeted postings for user's skills & locations
+      try {
+        const realJobFetcher = require('./realJobFetcher')
+        await realJobFetcher.fetchTargetedInternshipsAndJobs({
+          skills: resumeProfile.skills || [],
+          locations: user.preferences?.locations || [],
+          targetRoles: user.preferences?.targetRoles || [],
+          limit: 30,
+        })
+      } catch (fetchErr) {
+        logger.warn(`Targeted job fetch notice: ${fetchErr.message}`)
       }
+
+      // Fetch candidates: all high-salary/stipend jobs, user-skill matching jobs, and recent postings
+      const skillRegexes = (resumeProfile.skills || []).slice(0, 10).map(s => new RegExp(escapeRegExp(s), 'i'))
+      const activeJobs = await Job.find({
+        isActive: true,
+        $or: [
+          { 'salary.min': { $gte: 10000 } },
+          { 'salary.display': { $regex: /month|stipend|\b\d+k\b|10,|15,|20,|25,|50,|100,/i } },
+          { skills: { $in: skillRegexes } },
+          { postedAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } },
+        ]
+      }).sort({ postedAt: -1 }).limit(180).lean()
+
       const threshold = user.preferences?.minMatchScore || 60
       let newHighMatches = 0
+      const Notification = require('../models/Notification')
 
       for (const job of activeJobs) {
         const matchData = await aiClient.matchJob(resumeProfile, job)
@@ -505,21 +750,37 @@ const jobService = {
             copilotPitch: matchData.copilotPitch,
             computedAt: new Date(),
           },
-          { upsert: true, new: true }
+          { upsert: true, returnDocument: 'after' }
         )
 
-        if (match.matchScore >= threshold && user.preferences?.jobMatchAlerts) {
-          // Check if notification already sent for this job
-          const existingNotif = await notificationService.getUserNotifications(user._id, { limit: 100 })
-          const alreadyNotified = existingNotif.notifications.some(n => n.data?.jobId?.toString() === job._id.toString())
+        if (shouldNotifyJob(job, match.matchScore) && user.preferences?.jobMatchAlerts !== false) {
+          const alreadyNotified = await Notification.exists({
+            userId: user._id,
+            'data.jobId': job._id,
+          })
 
           if (!alreadyNotified) {
+            const stipendDisplay = job.salary?.display || (job.salary?.min ? `₹${job.salary.min.toLocaleString('en-IN')}/${job.salary.period || 'mo'}` : '')
+
+            const notifTitle = stipendDisplay
+              ? `💰 High Stipend (${stipendDisplay}): ${job.title} at ${job.company} (${match.matchScore}%)`
+              : `🎯 High Match (${match.matchScore}%): ${job.title} at ${job.company}`
+
+            const notifMessage = stipendDisplay
+              ? `KhojAI found a high-paying opportunity (${stipendDisplay}) matching your skills: ${job.title} at ${job.company} (${job.location || 'Remote'}).`
+              : `KhojAI found a high-match opportunity for your skills: ${job.title} at ${job.company} (${job.location || 'Remote'}).`
+
             await notificationService.sendNotification({
               userId: user._id,
               type: 'job_match',
-              title: `High Match: ${job.title} at ${job.company} (${match.matchScore}%)`,
-              message: `KhojAI found a new opportunity matching your profile: ${job.title} at ${job.company} (${job.location || 'Remote'}).`,
-              data: { jobId: job._id, matchScore: match.matchScore },
+              title: notifTitle,
+              message: notifMessage,
+              data: {
+                jobId: job._id,
+                matchScore: match.matchScore,
+                stipend: stipendDisplay,
+                company: job.company,
+              },
               channel: user.preferences?.emailEnabled ? 'all' : 'in_app',
             })
             newHighMatches++

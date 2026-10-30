@@ -2,10 +2,11 @@ import api from './client'
 
 // ─── Auth ─────────────────────────────────────────────────────
 export const authAPI = {
-  register:  (data) => api.post('/auth/register', data),
-  login:     (data) => api.post('/auth/login', data),
-  logout:    ()     => api.post('/auth/logout'),
-  me:        ()     => api.get('/auth/me'),
+  register:      (data) => api.post('/auth/register', data),
+  login:         (data) => api.post('/auth/login', data),
+  logout:        ()     => api.post('/auth/logout'),
+  me:            ()     => api.get('/auth/me'),
+  resetPassword: (data) => api.post('/auth/reset-password', data),
 }
 
 // ─── Profile ───────────────────────────────────────────────────
@@ -13,6 +14,7 @@ export const profileAPI = {
   get:              ()     => api.get('/profile'),
   update:           (data) => api.patch('/profile', data),
   updatePreferences:(data) => api.patch('/preferences', data),
+  syncResume:       ()     => api.post('/profile/sync-resume'),
 }
 
 // ─── Resume ───────────────────────────────────────────────────
@@ -49,6 +51,7 @@ export const notificationsAPI = {
   unreadCount:    ()       => api.get('/notifications/unread-count'),
   markRead:       (id)     => api.patch(`/notifications/${id}/read`),
   markAllRead:    ()       => api.post('/notifications/read-all'),
+  delete:         (id)     => api.delete(`/notifications/${id}`),
   getPrefs:       ()       => api.get('/notifications/preferences'),
   updatePrefs:    (data)   => api.patch('/notifications/preferences', data),
   subscribePush:  (sub)    => api.post('/notifications/push-subscriptions', sub),
@@ -57,11 +60,13 @@ export const notificationsAPI = {
 
 // ─── Applications ──────────────────────────────────────────────
 export const applicationsAPI = {
-  list:   (params) => api.get('/applications', { params }),
-  create: (data)   => api.post('/applications', data),
-  get:    (id)     => api.get(`/applications/${id}`),
-  update: (id, data) => api.patch(`/applications/${id}`, data),
-  delete: (id)     => api.delete(`/applications/${id}`),
+  list:       (params) => api.get('/applications', { params }),
+  create:     (data)   => api.post('/applications', data),
+  get:        (id)     => api.get(`/applications/${id}`),
+  update:     (id, data) => api.patch(`/applications/${id}`, data),
+  delete:     (id)     => api.delete(`/applications/${id}`),
+  autoSync:   ()       => api.post('/applications/auto-sync'),
+  parseEmail: (data)   => api.post('/applications/parse-email', data),
 }
 
 // ─── Career ───────────────────────────────────────────────────

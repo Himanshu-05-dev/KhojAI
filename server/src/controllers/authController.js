@@ -82,14 +82,51 @@ const authController = {
     }
   },
 
+  async logout(req, res) {
+    return res.json({ success: true, message: 'Logged out successfully' })
+  },
+
   async getMe(req, res, next) {
     try {
+      // Auto-fill profile from primary resume if user has uploaded one
+      const Resume = require('../models/Resume')
+      const resumeService = require('../services/resumeService')
+      const primaryResume = await Resume.findOne({ userId: req.user._id, isPrimary: true })
+        || await Resume.findOne({ userId: req.user._id }).sort({ createdAt: -1 })
+
+      if (primaryResume) {
+        await resumeService.applyResumeToUser(req.user, primaryResume)
+      }
+
       const userData = req.user.toSafeJSON()
       return res.json({
         success: true,
-        data: {
-          user: userData,
-        },
+        data: userData,
+        user: userData,
+      })
+    } catch (err) {
+      next(err)
+    }
+  },
+
+  async syncResume(req, res, next) {
+    try {
+      const Resume = require('../models/Resume')
+      const resumeService = require('../services/resumeService')
+      const primaryResume = await Resume.findOne({ userId: req.user._id, isPrimary: true })
+        || await Resume.findOne({ userId: req.user._id }).sort({ createdAt: -1 })
+
+      if (!primaryResume) {
+        return res.status(404).json({ success: false, message: 'No resume found to sync from' })
+      }
+
+      await resumeService.applyResumeToUser(req.user, primaryResume)
+
+      const userData = req.user.toSafeJSON()
+      return res.json({
+        success: true,
+        message: 'Profile synchronized with resume details',
+        data: userData,
         user: userData,
       })
     } catch (err) {
@@ -107,9 +144,11 @@ const authController = {
       })
 
       await req.user.save()
+      const userData = req.user.toSafeJSON()
       return res.json({
         success: true,
-        user: req.user.toSafeJSON(),
+        data: userData,
+        user: userData,
       })
     } catch (err) {
       next(err)
@@ -126,7 +165,35 @@ const authController = {
       await req.user.save()
       return res.json({
         success: true,
+        data: req.user.preferences,
         preferences: req.user.preferences,
+      })
+    } catch (err) {
+      next(err)
+    }
+  },
+
+  async resetPassword(req, res, next) {
+    try {
+      const { email, newPassword } = req.body
+      if (!email || !newPassword) {
+        return res.status(400).json({ success: false, message: 'Email and new password are required.' })
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' })
+      }
+
+      const user = await User.findOne({ email: email.trim().toLowerCase() })
+      if (!user) {
+        return res.status(404).json({ success: false, message: 'No account found with this email address.' })
+      }
+
+      user.passwordHash = await bcrypt.hash(newPassword, config.bcryptSaltRounds || 12)
+      await user.save()
+
+      return res.json({
+        success: true,
+        message: 'Password reset successfully! You can now log in with your new password.',
       })
     } catch (err) {
       next(err)
